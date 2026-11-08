@@ -1,0 +1,14 @@
+[package]
+name = "pool-config"
+version = "0.1.0"
+description = "Reads a receivables pool's parameters from its config file (pools/*.toml)"
+license = "Apache-2.0"
+repository = "https://github.com/scriplylabs/scriply-programs"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anchor-lang = "1.2.2"
+receivables-pool = { path = "../../programs/receivables-pool", features = ["no-entrypoint"] }
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "0.9.12"

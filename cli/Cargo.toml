@@ -1,0 +1,21 @@
+[package]
+name = "create-pool"
+version = "0.1.0"
+description = "Creates a receivables pool from its config file (pools/*.toml)"
+license = "Apache-2.0"
+repository = "https://github.com/scriplylabs/scriply-programs"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anchor-lang = "1.2.2"
+anchor-spl = "1.2.2"
+clap = { version = "4.6.7", features = ["derive"] }
+pool-config = { path = "../crates/pool-config" }
+receivables-pool = { path = "../programs/receivables-pool", features = ["no-entrypoint"] }
+solana-rpc-client = "3"
+solana-commitment-config = "3"
+solana-keypair = "3"
+solana-signer = "3"
+# The versions solana-rpc-client 3 sends; signing needs bincode.
+solana-transaction = { version = "3", features = ["bincode"] }

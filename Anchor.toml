@@ -1,0 +1,26 @@
+# Tests run the program in LiteSVM, so `anchor test` needs no validator.
+skip_local_validator = true
+
+[toolchain]
+anchor_version = "1.2.2"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+receivables_pool = "A5yYgE96b4cPU98zAwXhZtcbG6pyjuRUemodPyqQpQFD"
+snapshot_roots = "BZ3g7Fh9QSvwZbq6rDeKq11Tq99SQ1SmyC6qzZYT82ea"
+
+[programs.devnet]
+receivables_pool = "A5yYgE96b4cPU98zAwXhZtcbG6pyjuRUemodPyqQpQFD"
+snapshot_roots = "BZ3g7Fh9QSvwZbq6rDeKq11Tq99SQ1SmyC6qzZYT82ea"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "cargo test"
+
+[hooks]
