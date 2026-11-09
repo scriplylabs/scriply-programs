@@ -1,0 +1,45 @@
+[package]
+name = "receivables-pool"
+version = "0.1.0"
+description = "A lending pool with no admin that lends USDC against receivables tokens, deciding from the token's facts proven against its signers' posted roots"
+license = "Apache-2.0"
+repository = "https://github.com/scriplylabs/scriply-programs"
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "receivables_pool"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "snapshot-roots/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = { version = "1.2.2", features = ["init-if-needed"] }
+anchor-spl = "1.2.2"
+# Zero-copy accounts derive bytemuck's traits.
+bytemuck = { version = "1.25.2", features = ["derive", "min_const_generics"] }
+# Where signers post their roots; its account type, and the snapshot
+# layout and Merkle proofs it re-exports.
+snapshot-roots = { path = "../snapshot-roots", features = ["cpi"] }
+
+[dev-dependencies]
+# Cargo.lock pins LiteSVM's Rust-1.89-compatible dependency graph.
+litesvm = "0.15.0"
+# The integration tests create their pool from pools/devnet.toml.
+pool-config = { path = "../../crates/pool-config" }
+solana-message = "4"
+solana-transaction = "4"
+solana-signer = "3"
+solana-keypair = "3"
+solana-account = "4.3.1"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

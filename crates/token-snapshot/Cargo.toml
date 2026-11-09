@@ -1,0 +1,16 @@
+[package]
+name = "token-snapshot"
+version = "0.1.0"
+description = "The layout of a receivables token's snapshot, and the Merkle tree a signer commits every token's snapshot to"
+license = "Apache-2.0"
+repository = "https://github.com/scriplylabs/scriply-programs"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# SHA-256 through the runtime's syscall on chain, and the sha2 crate off it.
+solana-sha256-hasher = { version = "3.1.0", features = ["sha2"] }
+
+[dev-dependencies]
+hex = "0.4.3"
+serde_json = "1.0.151"
