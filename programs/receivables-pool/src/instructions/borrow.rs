@@ -156,7 +156,8 @@ pub fn handle_borrow(
     exposure_account.principal = to_u64(exposure)?;
 
     let loan = &mut ctx.accounts.loan;
-    if loan.pool == Pubkey::default() {
+    let is_first_loan = loan.pool == Pubkey::default();
+    if is_first_loan {
         loan.version = ACCOUNT_VERSION;
         loan.pool = pool_key;
         loan.collateral_mint = mint.key();
@@ -182,8 +183,16 @@ pub fn handle_borrow(
     drop(pool);
 
     let a = &ctx.accounts;
-    // Units left from the borrower's last loan would be pledged unpriced.
-    require!(a.collateral_vault.amount == 0, PoolError::UnitsNotWithdrawn);
+    // Units left from the borrower's last loan would be pledged unpriced,
+    // and its borrower withdraws them first. Before the first loan nothing
+    // can withdraw them: the vault is thawed before its loan exists, so any
+    // holder may send it units, and they are pledged with the loan and go
+    // back to the borrower with it. Collateral the risk engine didn't price
+    // only favours the pool.
+    require!(
+        is_first_loan || a.collateral_vault.amount == 0,
+        PoolError::UnitsNotWithdrawn
+    );
     tokens::transfer(
         &a.collateral_token_program,
         a.borrower_collateral.to_account_info(),

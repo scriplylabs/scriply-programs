@@ -137,6 +137,25 @@ fn test_repaying_returns_the_units_and_frees_the_token() {
 }
 
 #[test]
+fn test_units_sent_to_a_vault_before_its_first_loan_dont_block_it() {
+    // The vault is thawed before its loan exists, so anyone holding the
+    // token can send it units; no loan exists to withdraw them through.
+    let mut env = Env::new();
+    env.depositor(2_000 * USDC);
+    let org = borrower(&mut env, 1_000 * UNIT);
+    let holder = env.wallet();
+    env.mint_units(&holder.pubkey(), 1);
+    let vault = env.collateral_vault(&org.pubkey());
+    env.send_units(&holder, &vault, 1);
+
+    borrow(&mut env, &org, 1_000 * UNIT, 500 * USDC, 4);
+
+    // They're pledged with the units borrowed against, and go back to the
+    // borrower with them.
+    assert_eq!(env.loan_state(&org.pubkey()).units, 1_000 * UNIT + 1);
+}
+
+#[test]
 fn test_proceeds_go_only_to_the_pools_own_vault() {
     let mut env = Env::new();
     env.depositor(2_000 * USDC);
