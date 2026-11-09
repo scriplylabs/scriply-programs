@@ -378,6 +378,23 @@ impl Env {
         account
     }
 
+    /// Sends `units` from `holder`'s account for the token to `to`, as any
+    /// holder may send them to a thawed account.
+    pub fn send_units(&mut self, holder: &Keypair, to: &Pubkey, units: u64) {
+        let ix = spl_token_2022::instruction::transfer_checked(
+            &spl_token_2022::ID,
+            &ata(&holder.pubkey(), &self.token, &spl_token_2022::ID),
+            &self.token,
+            to,
+            &holder.pubkey(),
+            &[],
+            units,
+            6,
+        )
+        .unwrap();
+        self.send(&[ix], &[holder]).unwrap();
+    }
+
     /// A buy-back: burns `units` from `borrower`'s loan vault with
     /// the permanent delegate and pays `usdc` for them to the loan's
     /// proceeds.
