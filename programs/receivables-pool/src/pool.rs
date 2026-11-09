@@ -85,9 +85,33 @@ impl Pool {
         Ok(())
     }
 
-    /// Whether every open loan has been marked in the settled epoch.
+    /// The loans NAV counts as performing, which each epoch's marking
+    /// covers. An impaired loan can't be marked up or down, so it isn't one.
+    pub fn performing_loans(&self) -> u64 {
+        self.buckets.iter().map(|b| b.loans).sum()
+    }
+
+    /// Whether every performing loan has been marked in the settled epoch.
     pub fn is_marked(&self) -> bool {
-        self.marked_loans >= self.open_loans
+        self.marked_loans >= self.performing_loans()
+    }
+
+    /// Counts a new performing loan maturing in `maturity_epoch`, marked
+    /// this epoch since its token was just read.
+    pub fn add_performing_loan(&mut self, maturity_epoch: u64) {
+        self.buckets[(maturity_epoch % BUCKETS as u64) as usize].loans += 1;
+        self.marked_loans += 1;
+    }
+
+    /// Stops counting a performing loan maturing in `maturity_epoch`, once
+    /// it is repaid or written down; `was_marked` says whether it was
+    /// marked this epoch.
+    pub fn remove_performing_loan(&mut self, maturity_epoch: u64, was_marked: bool) {
+        let bucket = &mut self.buckets[(maturity_epoch % BUCKETS as u64) as usize];
+        bucket.loans = bucket.loans.saturating_sub(1);
+        if was_marked {
+            self.marked_loans = self.marked_loans.saturating_sub(1);
+        }
     }
 
     /// Starts settling `epoch`: impairs the loans past maturity and grace
@@ -135,7 +159,10 @@ impl Pool {
     pub fn add_accrual(&mut self, maturity_epoch: u64, a: &Accrual) -> Result<()> {
         let bucket = &mut self.buckets[(maturity_epoch % BUCKETS as u64) as usize];
         if bucket.maturity_epoch != maturity_epoch {
-            require!(bucket.accrual().is_empty(), PoolError::BucketInUse);
+            require!(
+                bucket.accrual().is_empty() && bucket.loans == 0,
+                PoolError::BucketInUse
+            );
             bucket.maturity_epoch = maturity_epoch;
         }
         let sum = bucket.accrual().checked_add(a)?;
@@ -156,7 +183,8 @@ impl Pool {
 
     /// Impairs every bucket whose maturity and grace have passed by the
     /// settled epoch: NAV counts its loans at the impaired share of what
-    /// they owed at maturity, and they stop accruing into NAV.
+    /// they owed at maturity, they stop accruing into NAV, and marking no
+    /// longer covers them.
     pub fn impair_due(&mut self) -> Result<()> {
         for i in 0..BUCKETS {
             let bucket = self.buckets[i];
@@ -168,6 +196,7 @@ impl Pool {
             let value = mul_div(owed, self.impaired_share_bps as u128, BPS as u128)?;
             self.impaired_value = to_u64(add(self.impaired_value as u128, value)?)?;
             self.buckets[i].set_accrual(&Accrual::default());
+            self.buckets[i].loans = 0;
         }
         Ok(())
     }
@@ -191,19 +220,19 @@ impl Pool {
         Ok(norm)
     }
 
-    /// Pays the withdrawal queue at the NAV per share at `at`, from idle
-    /// USDC. If idle USDC can't pay every request, each is paid the same
+    /// Pays the withdrawal queue at the NAV per share at `now`, from idle
+    /// USDC. `now` is no earlier than any loan's last payment. If idle USDC can't pay every request, each is paid the same
     /// share of what it asked and the rest waits for the next epoch.
     pub fn settle_withdrawals(
         &mut self,
         share_supply: u64,
-        at: i64,
+        now: i64,
     ) -> Result<WithdrawalSettlement> {
         let pending = self.pending_shares;
         if pending == 0 {
             return Ok(WithdrawalSettlement::default());
         }
-        let nav = self.nav(at)?;
+        let nav = self.nav(now)?;
         let needed = to_u64(mul_div(
             pending as u128,
             nav as u128 + VIRTUAL_ASSETS as u128,

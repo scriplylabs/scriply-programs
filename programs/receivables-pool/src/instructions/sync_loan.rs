@@ -1,5 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
+use anchor_spl::{
+    associated_token::get_associated_token_address_with_program_id as ata,
+    token_interface::{Mint, TokenAccount, TokenInterface},
+};
 
 use crate::{
     constants::*,
@@ -61,8 +64,11 @@ pub struct LoanTokens<'info> {
 
 impl<'info> LoanTokens<'info> {
     /// Fails unless every account is the one this loan in this pool
-    /// settles through. Composite accounts can't name their parent's
-    /// fields in constraints, so the parent calls this.
+    /// settles through: the pool's USDC vault and the loan's own vault and
+    /// proceeds account are the associated token accounts `borrow` created,
+    /// since anyone can create another account with the same owner and
+    /// mint. Composite accounts can't name their parent's fields in
+    /// constraints, so the parent calls this.
     pub fn check(
         &self,
         pool: Pubkey,
@@ -77,30 +83,22 @@ impl<'info> LoanTokens<'info> {
             authority,
             ErrorCode::ConstraintSeeds
         );
+        let quote_program = self.quote_token_program.key();
+        let collateral_program = self.collateral_token_program.key();
         require_keys_eq!(
-            self.quote_vault.mint,
-            quote_mint,
-            ErrorCode::ConstraintTokenMint
+            self.quote_vault.key(),
+            ata(&authority, &quote_mint, &quote_program),
+            ErrorCode::ConstraintAssociated
         );
         require_keys_eq!(
-            self.collateral_vault.owner,
-            loan_key,
-            ErrorCode::ConstraintTokenOwner
+            self.collateral_vault.key(),
+            ata(&loan_key, &loan.collateral_mint, &collateral_program),
+            ErrorCode::ConstraintAssociated
         );
         require_keys_eq!(
-            self.collateral_vault.mint,
-            loan.collateral_mint,
-            ErrorCode::ConstraintTokenMint
-        );
-        require_keys_eq!(
-            self.loan_proceeds.owner,
-            loan_key,
-            ErrorCode::ConstraintTokenOwner
-        );
-        require_keys_eq!(
-            self.loan_proceeds.mint,
-            quote_mint,
-            ErrorCode::ConstraintTokenMint
+            self.loan_proceeds.key(),
+            ata(&loan_key, &quote_mint, &quote_program),
+            ErrorCode::ConstraintAssociated
         );
         require_keys_eq!(
             self.borrower_quote.owner,

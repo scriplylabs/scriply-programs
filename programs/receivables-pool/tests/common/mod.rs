@@ -307,6 +307,34 @@ impl Env {
         account
     }
 
+    /// Creates a USDC account owned by `owner` that is not its associated
+    /// token account, as anyone can.
+    pub fn side_usdc_account(&mut self, owner: &Pubkey) -> Pubkey {
+        let account = Keypair::new();
+        let payer = self.issuer.insecure_clone();
+        // An SPL token account with no extensions.
+        let len = 165;
+        let rent = self.svm.minimum_balance_for_rent_exemption(len);
+        let ixs = [
+            system_instruction::create_account(
+                &payer.pubkey(),
+                &account.pubkey(),
+                rent,
+                len as u64,
+                &spl_token::ID,
+            ),
+            spl_token::instruction::initialize_account3(
+                &spl_token::ID,
+                &account.pubkey(),
+                &self.usdc,
+                owner,
+            )
+            .unwrap(),
+        ];
+        self.send(&ixs, &[&payer, &account]).unwrap();
+        account.pubkey()
+    }
+
     /// Creates `owner`'s account for the receivables token, which starts
     /// frozen, and thaws it, as Scriply does for an attested wallet.
     pub fn thawed_token_account(&mut self, owner: &Pubkey) -> Pubkey {
@@ -689,6 +717,13 @@ impl Env {
     }
 
     pub fn sync_loan_ix(&self, borrower: &Pubkey) -> Instruction {
+        self.sync_loan_ix_into(borrower, self.quote_vault)
+    }
+
+    /// `sync_loan` paying into `quote_vault` instead of the pool's vault.
+    pub fn sync_loan_ix_into(&self, borrower: &Pubkey, quote_vault: Pubkey) -> Instruction {
+        let mut loan_tokens = self.loan_tokens(borrower);
+        loan_tokens.quote_vault = quote_vault;
         Instruction::new_with_bytes(
             receivables_pool::id(),
             &receivables_pool::instruction::SyncLoan {}.data(),
@@ -696,7 +731,7 @@ impl Env {
                 pool: self.pool,
                 loan: self.loan(borrower),
                 exposure: self.exposure(),
-                loan_tokens: self.loan_tokens(borrower),
+                loan_tokens,
                 quote_mint: self.usdc,
                 collateral_mint: self.token,
             }

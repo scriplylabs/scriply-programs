@@ -77,8 +77,7 @@ impl Loan {
             .idle
             .checked_sub(o.principal)
             .ok_or(PoolError::InsufficientLiquidity)?;
-        pool.open_loans += 1;
-        pool.marked_loans += 1;
+        pool.add_performing_loan(o.maturity_epoch);
         Ok(())
     }
 
@@ -141,11 +140,9 @@ impl Loan {
         if self.is_impaired(pool) {
             self.set_impaired_value(pool)?;
             pool.impaired_value = pool.impaired_value.saturating_sub(self.impaired_value);
+        } else {
+            pool.remove_performing_loan(self.maturity_epoch, self.is_marked(pool));
         }
-        if self.marked_epoch == pool.settled_epoch {
-            pool.marked_loans = pool.marked_loans.saturating_sub(1);
-        }
-        pool.open_loans -= 1;
         self.is_open = false;
         self.is_written_down = false;
         self.impaired_value = 0;
@@ -183,10 +180,7 @@ impl Loan {
     /// lower. Returns whether this was the loan's first mark of the epoch.
     pub fn mark_stale(&mut self, pool: &mut Pool, now: i64) -> Result<bool> {
         require!(self.is_open, PoolError::NotALoan);
-        require!(
-            self.marked_epoch != pool.settled_epoch,
-            PoolError::AlreadyMarked
-        );
+        require!(!self.is_marked(pool), PoolError::AlreadyMarked);
         self.clear_stale(pool);
         if !self.is_impaired(pool) {
             let owed = self.owed(now)? as u128;
@@ -201,13 +195,20 @@ impl Loan {
     }
 
     /// Records the loan as marked in the settled epoch; true the first time.
+    /// Only a performing loan counts towards the epoch's marking.
     fn stamp(&mut self, pool: &mut Pool) -> bool {
-        if self.marked_epoch == pool.settled_epoch {
+        if self.is_marked(pool) {
             return false;
         }
         self.marked_epoch = pool.settled_epoch;
-        pool.marked_loans += 1;
+        if !self.is_impaired(pool) {
+            pool.marked_loans += 1;
+        }
         true
+    }
+
+    fn is_marked(&self, pool: &Pool) -> bool {
+        self.marked_epoch == pool.settled_epoch
     }
 
     fn clear_stale(&mut self, pool: &mut Pool) {
@@ -224,6 +225,7 @@ impl Loan {
         }
         let accrual = self.accrual()?;
         pool.remove_accrual(self.maturity_epoch, &accrual)?;
+        pool.remove_performing_loan(self.maturity_epoch, self.is_marked(pool));
         let owed = accrual.owed_at(now, self.maturity_time)?;
         self.impaired_value = to_u64(mul_div(owed, pool.impaired_share_bps as u128, BPS as u128)?)?;
         self.is_impaired_value_set = true;
@@ -327,7 +329,7 @@ mod tests {
         l.close_repaid(&mut p).unwrap();
         assert_eq!(p.nav(T0 + 90 * DAY).unwrap(), 1_014_794_520);
         assert!(p.buckets.iter().all(|b| b.accrual().is_empty()));
-        assert_eq!((p.open_loans, p.marked_loans), (0, 0));
+        assert_eq!((p.performing_loans(), p.marked_loans), (0, 0));
     }
 
     #[test]
@@ -409,5 +411,51 @@ mod tests {
         l.mark(&mut p, T0 + 20, false, later).unwrap();
         assert_eq!(p.stale_discount, 0);
         assert_eq!(p.nav(later).unwrap(), 500_000_000 + owed_later);
+    }
+
+    #[test]
+    fn test_an_impaired_loan_needs_no_marking() {
+        let mut p = pool();
+        let mut l = opened(&mut p, 500_000_000, 1);
+        // Maturity 1 and grace 1: impaired once epoch 2 opens.
+        p.open_epoch(1).unwrap();
+        assert!(!p.is_marked());
+        p.open_epoch(2).unwrap();
+        assert!(l.is_impaired(&p));
+        assert_eq!(p.performing_loans(), 0);
+        assert!(p.is_marked());
+        // A stale mark of it counts for nothing.
+        let now = p.epoch_start(2);
+        l.mark_stale(&mut p, now).unwrap();
+        assert_eq!(p.marked_loans, 0);
+    }
+
+    #[test]
+    fn test_a_written_down_loan_leaves_the_marking() {
+        let mut p = pool();
+        let mut l = opened(&mut p, 500_000_000, 13);
+        let _ = opened(&mut p, 100_000_000, 13);
+        p.open_epoch(1).unwrap();
+        let now = p.epoch_start(1) + 60;
+        l.mark(&mut p, T0 + 10, true, now).unwrap();
+        assert_eq!((p.performing_loans(), p.marked_loans), (1, 0));
+        assert!(!p.is_marked());
+        // Next epoch, only the other loan needs marking.
+        p.open_epoch(2).unwrap();
+        assert_eq!(p.performing_loans(), 1);
+    }
+
+    #[test]
+    fn test_withdrawals_are_priced_after_a_repayment_during_marking() {
+        // A loan alone in its bucket, repaid in part after the epoch opens.
+        let mut p = pool();
+        let mut l = opened(&mut p, 500_000_000, 13);
+        p.open_epoch(1).unwrap();
+        let now = p.epoch_start(1) + 3_600;
+        l.apply_payment(&mut p, 1, now).unwrap();
+        // Pricing at the epoch's start would count interest before the
+        // payment's restart, and fail.
+        assert!(p.nav(p.epoch_start(1)).is_err());
+        assert!(p.nav(now).is_ok());
     }
 }

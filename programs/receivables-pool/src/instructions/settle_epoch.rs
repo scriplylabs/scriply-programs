@@ -40,11 +40,13 @@ pub struct SettleEpoch<'info> {
 /// otherwise does nothing, so clients can put it before any instruction:
 ///
 /// 1. When a new epoch has started, impairs the loans past maturity and
-///    grace and begins marking: every open loan must then be marked from
+///    grace and begins marking: every performing loan must then be marked from
 ///    its token's facts (`mark_loans`, or `mark_stale` once the window
 ///    closes).
-/// 2. Once every open loan is marked, pays the withdrawals asked for at the
-///    NAV per share at the epoch's start, setting their USDC aside.
+/// 2. Once every performing loan is marked, pays the withdrawals asked for
+///    at the NAV per share then, setting their USDC aside. NAV is worked out
+///    when they're paid, not at the epoch's start, because repayments and
+///    syncs made during marking are already in the pool's state.
 ///
 /// A pool with no open loans does both in one call.
 pub fn handle_settle_epoch(ctx: Context<SettleEpoch>) -> Result<()> {
@@ -59,8 +61,7 @@ pub fn handle_settle_epoch(ctx: Context<SettleEpoch>) -> Result<()> {
         return Ok(());
     }
     pool.withdrawals_epoch = epoch;
-    let at = pool.epoch_start(epoch);
-    let settlement = pool.settle_withdrawals(ctx.accounts.share_mint.supply, at)?;
+    let settlement = pool.settle_withdrawals(ctx.accounts.share_mint.supply, now)?;
     let authority_bump = pool.authority_bump;
     drop(pool);
 

@@ -2,6 +2,9 @@ mod common;
 
 use {
     anchor_lang::prelude::Pubkey,
+    anchor_spl::{
+        associated_token::get_associated_token_address_with_program_id as ata, token::spl_token,
+    },
     common::*,
     receivables_pool::{
         snapshot::ProvenSnapshot,
@@ -114,11 +117,32 @@ fn test_repaying_returns_the_units_and_frees_the_token() {
     assert!(!env.loan_state(&org.pubkey()).is_open);
     assert_eq!(env.units_of(&org.pubkey()), 1_000 * UNIT);
     let pool = env.pool_state();
-    assert_eq!((pool.open_loans, pool.marked_loans), (0, 0));
+    assert_eq!((pool.performing_loans(), pool.marked_loans), (0, 0));
 
     // The same loan account takes the borrower's next loan.
     borrow(&mut env, &org, 1_000 * UNIT, 100 * USDC, 4);
     assert!(env.loan_state(&org.pubkey()).is_open);
+}
+
+#[test]
+fn test_proceeds_go_only_to_the_pools_own_vault() {
+    let mut env = Env::new();
+    env.depositor(2_000 * USDC);
+    let org = borrower(&mut env, 1_000 * UNIT);
+    borrow(&mut env, &org, 1_000 * UNIT, 500 * USDC, 4);
+
+    // A buy-back's USDC waits in the loan's proceeds account.
+    let proceeds = ata(&env.loan(&org.pubkey()), &env.usdc, &spl_token::ID);
+    env.fund_usdc(&env.loan(&org.pubkey()), 600 * USDC);
+    assert_eq!(env.balance(&proceeds), 600 * USDC);
+
+    // An account the pool's authority owns, but not its vault, is refused.
+    let authority = env.authority;
+    let side = env.side_usdc_account(&authority);
+    let keeper = env.wallet();
+    let ix = env.sync_loan_ix_into(&org.pubkey(), side);
+    env.send_expecting_error(&[ix], &[&keeper], "ConstraintAssociated");
+    assert_eq!(env.balance(&proceeds), 600 * USDC);
 }
 
 #[test]
@@ -136,7 +160,7 @@ fn test_several_holders_borrow_against_one_token_within_its_cap() {
 
     borrow(&mut env, &b, 1_000 * UNIT, 400 * USDC, 4);
     assert_eq!(env.exposure_state().principal, 1_000 * USDC);
-    assert_eq!(env.pool_state().open_loans, 2);
+    assert_eq!(env.pool_state().performing_loans(), 2);
     assert_eq!(env.usdc_balance(&b.pubkey()), 400 * USDC);
 }
 
@@ -180,7 +204,22 @@ fn test_borrowing_is_refused_without_good_facts() {
         1_000 * UNIT,
         100 * USDC,
         4,
-        "RootNotFound",
+        "RootNotLatest",
+    );
+
+    // A root still kept and fresh enough, but not the latest, can't step
+    // around newer facts: here, burn debt that went overdue.
+    let kinder = env.post_token();
+    let mut s = env.snapshot();
+    s.burn_debt_overdue = true;
+    env.post_with(s);
+    attempt(
+        &mut env,
+        kinder,
+        1_000 * UNIT,
+        100 * USDC,
+        4,
+        "RootNotLatest",
     );
 
     // A keeper can't change a fact under a real root.
@@ -360,8 +399,8 @@ fn test_every_loan_is_marked_before_withdrawals_are_paid() {
     let ix = env.deposit_ix(&late.pubkey(), 100 * USDC, None);
     env.send_expecting_error(&[ix], &[&late], "EpochNotSettled");
 
-    // A keeper can't mark from an older root than the loan was last read
-    // from, even one still kept and fresh enough.
+    // A keeper can't mark from an older root than the signer's latest, even
+    // one still kept and fresh enough.
     let mut s = env.snapshot();
     let older = env.post_with(s.clone());
     s.report_hash = [10; 32];
@@ -370,7 +409,7 @@ fn test_every_loan_is_marked_before_withdrawals_are_paid() {
     let ix = env.mark_loans_ix(vec![newer], &[&org.pubkey()]);
     env.send(&[ix], &[&creator]).unwrap();
     let ix = env.mark_loans_ix(vec![older], &[&org.pubkey()]);
-    env.send_expecting_error(&[ix], &[&creator], "RootOlderThanLastRead");
+    env.send_expecting_error(&[ix], &[&creator], "RootNotLatest");
 
     // Marked, the epoch's withdrawals are paid and deposits reopen.
     env.settle();

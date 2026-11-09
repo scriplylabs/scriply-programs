@@ -37,8 +37,8 @@ pub enum PoolError {
     // A token's facts
     #[msg("The roots account is not one of the pool's signers'")]
     UnknownSigner,
-    #[msg("That root is not among the signer's kept roots")]
-    RootNotFound,
+    #[msg("That root is not the signer's latest")]
+    RootNotLatest,
     #[msg("The root is older than the pool allows")]
     RootTooOld,
     #[msg("The root is older than the one this loan was last read from")]

@@ -31,6 +31,9 @@ impl Wide {
 #[zero_copy]
 pub struct MaturityBucket {
     pub maturity_epoch: u64,
+    /// The bucket's performing loans: each must be marked every epoch.
+    /// Impairing the bucket, or writing a loan down, takes them out.
+    pub loans: u64,
     pub principal: Wide,
     pub principal_rate: Wide,
     pub principal_rate_start: Wide,
@@ -166,8 +169,7 @@ pub struct Pool {
     /// The withdrawal queue's generation, which ends whenever an epoch's
     /// start pays every pending withdrawal in full.
     pub withdrawal_generation: u64,
-    pub open_loans: u64,
-    /// Open loans marked in the settled epoch.
+    /// Performing loans marked in the settled epoch.
     pub marked_loans: u64,
     /// The share of each withdrawal still unpaid in this generation, scaled
     /// by INDEX_SCALE.
