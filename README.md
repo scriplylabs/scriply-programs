@@ -41,7 +41,7 @@ A lending pool with no admin. Anyone creates a pool with fixed parameters, inclu
 - **Fixed rates only.** `RateMode::Variable` is declared and refused until it is built.
 - **Proofs are large.** A transaction holds about two tokens' proofs at thousands of tokens; see `docs/snapshot.md`.
 - **One withdrawal request per wallet** at a time; it closes once paid in full.
-- **A borrower's vault must be thawed before their first loan.** Receivables tokens' accounts start frozen, and only the issuer (or, later, its gate program) thaws one.
+- **A borrower's vault must be thawed before their first loan against a token in a pool.** Receivables tokens' accounts start frozen, and only the issuer (or, later, a gate program) thaws one. `borrow` creates the vault if it is missing, but a new vault is frozen, so a first `borrow` that also creates it fails. The client first creates the vault (the associated token account of the loan's address, which the borrower pays rent for), then asks the issuer to thaw it, then borrows. Scriply thaws by one fixed rule, read on chain, and reviews no pool: the token is one it issues, the pool is an account of this program, and the borrower's own account for the token is thawed. Anyone asks at `POST /v1/public/pools/{network}/{poolAddress}/loan-vault-thaws` on Scriply's API with `{tokenAddress, borrower}`. The vault stays thawed for every later loan of that borrower against that token in that pool. The rule is safe only because the program moves units out of a vault to nobody but its borrower, so every new way out must keep to that.
 - **Not audited.** The upgrade authority stays with Scriply on devnet and is renounced once the program has been audited, before it holds real money.
 
 ## snapshot-roots
