@@ -115,11 +115,13 @@ impl Pool {
     }
 
     /// Starts settling `epoch`: impairs the loans past maturity and grace
-    /// and begins its marking. Every loan stale last epoch is unmarked
-    /// again, so its discount stays until a fresh mark clears it.
+    /// and begins its marking. Last epoch's stale discounts end here: a
+    /// loan still unread is marked stale again once the window closes, and
+    /// nothing waiting on the marks runs before then.
     pub fn open_epoch(&mut self, epoch: u64) -> Result<()> {
         self.settled_epoch = epoch;
         self.marked_loans = 0;
+        self.stale_discount = 0;
         self.impair_due()
     }
 

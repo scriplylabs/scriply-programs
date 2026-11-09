@@ -182,6 +182,8 @@ pub fn handle_borrow(
     drop(pool);
 
     let a = &ctx.accounts;
+    // Units left from the borrower's last loan would be pledged unpriced.
+    require!(a.collateral_vault.amount == 0, PoolError::UnitsNotWithdrawn);
     tokens::transfer(
         &a.collateral_token_program,
         a.borrower_collateral.to_account_info(),

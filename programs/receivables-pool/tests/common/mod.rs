@@ -710,10 +710,54 @@ impl Env {
             collateral_vault: self.collateral_vault(borrower),
             loan_proceeds: ata(&loan, &self.usdc, &spl_token::ID),
             borrower_quote: ata(borrower, &self.usdc, &spl_token::ID),
-            borrower_collateral: ata(borrower, &self.token, &spl_token_2022::ID),
             quote_token_program: spl_token::ID,
             collateral_token_program: spl_token_2022::ID,
         }
+    }
+
+    pub fn withdraw_units_ix(&self, borrower: &Pubkey) -> Instruction {
+        Instruction::new_with_bytes(
+            receivables_pool::id(),
+            &receivables_pool::instruction::WithdrawUnits {}.data(),
+            receivables_pool::accounts::WithdrawUnits {
+                borrower: *borrower,
+                pool: self.pool,
+                loan: self.loan(borrower),
+                collateral_vault: self.collateral_vault(borrower),
+                borrower_collateral: ata(borrower, &self.token, &spl_token_2022::ID),
+                collateral_mint: self.token,
+                collateral_token_program: spl_token_2022::ID,
+            }
+            .to_account_metas(None),
+        )
+    }
+
+    /// Freezes `owner`'s account for the token, as its issuer may.
+    pub fn freeze_token_account(&mut self, owner: &Pubkey) {
+        let issuer = self.issuer.insecure_clone();
+        let ix = spl_token_2022::instruction::freeze_account(
+            &spl_token_2022::ID,
+            &ata(owner, &self.token, &spl_token_2022::ID),
+            &self.token,
+            &issuer.pubkey(),
+            &[],
+        )
+        .unwrap();
+        self.send(&[ix], &[&issuer]).unwrap();
+    }
+
+    /// Thaws `owner`'s account for the token.
+    pub fn thaw_token_account(&mut self, owner: &Pubkey) {
+        let issuer = self.issuer.insecure_clone();
+        let ix = spl_token_2022::instruction::thaw_account(
+            &spl_token_2022::ID,
+            &ata(owner, &self.token, &spl_token_2022::ID),
+            &self.token,
+            &issuer.pubkey(),
+            &[],
+        )
+        .unwrap();
+        self.send(&[ix], &[&issuer]).unwrap();
     }
 
     pub fn sync_loan_ix(&self, borrower: &Pubkey) -> Instruction {

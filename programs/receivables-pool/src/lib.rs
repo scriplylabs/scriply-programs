@@ -88,7 +88,7 @@ pub mod receivables_pool {
         instructions::borrow::handle_borrow(ctx, units, principal, maturity_epochs, proven)
     }
 
-    /// Pays towards a loan; once nothing is owed its units go back.
+    /// Pays towards a loan; once nothing is owed it closes.
     pub fn repay(ctx: Context<Repay>, amount: u64) -> Result<()> {
         instructions::repay::handle_repay(ctx, amount)
     }
@@ -97,5 +97,10 @@ pub mod receivables_pool {
     /// vault holds, and closes it if nothing is owed.
     pub fn sync_loan(ctx: Context<SyncLoan>) -> Result<()> {
         instructions::sync_loan::handle_sync_loan(ctx)
+    }
+
+    /// Moves a closed loan's remaining units to its borrower.
+    pub fn withdraw_units(ctx: Context<WithdrawUnits>) -> Result<()> {
+        instructions::withdraw_units::handle_withdraw_units(ctx)
     }
 }

@@ -69,6 +69,8 @@ pub enum PoolError {
     LoanOpen,
     #[msg("The loan is closed")]
     LoanClosed,
+    #[msg("Units from this borrower's last loan are still in its vault: withdraw them first")]
+    UnitsNotWithdrawn,
     #[msg("That maturity is not one of the pool's")]
     MaturityNotOffered,
     #[msg("The loan exceeds the advance the risk engine allows for the units pledged")]

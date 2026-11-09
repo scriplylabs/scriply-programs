@@ -40,7 +40,8 @@ pub struct Repay<'info> {
 
 /// Pays up to `amount` USDC towards the loan, never more than it owes, after
 /// setting any USDC already paid for its units against it. Once nothing is
-/// owed the loan closes and its units go back to the borrower.
+/// owed the loan closes, and its units wait in its vault for the borrower
+/// to withdraw.
 pub fn handle_repay(ctx: Context<Repay>, amount: u64) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let pool_key = ctx.accounts.pool.key();
@@ -83,6 +84,6 @@ pub fn handle_repay(ctx: Context<Repay>, amount: u64) -> Result<()> {
             excess: 0,
         });
     }
-    close_if_repaid(&mut pool, &mut a.loan, &a.loan_tokens, &a.collateral_mint)?;
+    close_if_repaid(&mut pool, &mut a.loan)?;
     Ok(())
 }

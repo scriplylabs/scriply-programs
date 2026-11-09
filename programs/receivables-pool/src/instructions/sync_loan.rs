@@ -55,9 +55,6 @@ pub struct LoanTokens<'info> {
     /// The borrower's USDC account, for what is left once nothing is owed.
     #[account(mut, token::token_program = quote_token_program)]
     pub borrower_quote: Box<InterfaceAccount<'info, TokenAccount>>,
-    /// The borrower's account for the token, for units returned.
-    #[account(mut, token::token_program = collateral_token_program)]
-    pub borrower_collateral: Box<InterfaceAccount<'info, TokenAccount>>,
     pub quote_token_program: Interface<'info, TokenInterface>,
     pub collateral_token_program: Interface<'info, TokenInterface>,
 }
@@ -110,16 +107,6 @@ impl<'info> LoanTokens<'info> {
             quote_mint,
             ErrorCode::ConstraintTokenMint
         );
-        require_keys_eq!(
-            self.borrower_collateral.owner,
-            loan.borrower,
-            ErrorCode::ConstraintTokenOwner
-        );
-        require_keys_eq!(
-            self.borrower_collateral.mint,
-            loan.collateral_mint,
-            ErrorCode::ConstraintTokenMint
-        );
         Ok(())
     }
 }
@@ -147,7 +134,7 @@ pub fn handle_sync_loan(ctx: Context<SyncLoan>) -> Result<()> {
         now,
     )?;
     record_units(&mut a.loan, &mut a.loan_tokens)?;
-    close_if_repaid(&mut pool, &mut a.loan, &a.loan_tokens, &a.collateral_mint)?;
+    close_if_repaid(&mut pool, &mut a.loan)?;
     Ok(())
 }
 
@@ -213,34 +200,14 @@ pub fn record_units<'info>(
     Ok(())
 }
 
-/// Closes the loan once nothing is owed, returning its remaining units to
-/// the borrower.
-pub fn close_if_repaid<'info>(
-    pool: &mut Pool,
-    loan: &mut Account<'info, Loan>,
-    t: &LoanTokens<'info>,
-    collateral_mint: &InterfaceAccount<'info, Mint>,
-) -> Result<()> {
+/// Closes the loan once nothing is owed. Its remaining units stay in its
+/// vault until the borrower withdraws them (`withdraw_units`): the token's
+/// issuer may have frozen the borrower's account, and a transfer into it
+/// would undo the payment that repaid the loan.
+pub fn close_if_repaid(pool: &mut Pool, loan: &mut Account<Loan>) -> Result<()> {
     if !loan.is_open || !loan.is_repaid() {
         return Ok(());
     }
-    let seeds: &[&[u8]] = &[
-        LOAN_SEED,
-        loan.pool.as_ref(),
-        loan.collateral_mint.as_ref(),
-        loan.borrower.as_ref(),
-        &[loan.bump],
-    ];
-    tokens::transfer(
-        &t.collateral_token_program,
-        t.collateral_vault.to_account_info(),
-        collateral_mint,
-        t.borrower_collateral.to_account_info(),
-        loan.to_account_info(),
-        &[seeds],
-        loan.units,
-    )?;
-    loan.units = 0;
     loan.close_repaid(pool)?;
     emit!(LoanClosed {
         pool: loan.pool,

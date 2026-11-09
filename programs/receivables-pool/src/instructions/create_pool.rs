@@ -50,6 +50,10 @@ pub struct CreatePool<'info> {
         associated_token::token_program = share_token_program,
     )]
     pub share_escrow: Box<InterfaceAccount<'info, TokenAccount>>,
+    /// The quote token is a classic SPL token: a Token-2022 mint's transfer
+    /// fee or permanent delegate would leave the vault holding less than
+    /// the pool counts.
+    #[account(address = anchor_spl::token::ID)]
     pub quote_token_program: Interface<'info, TokenInterface>,
     /// Shares are classic SPL tokens, which every wallet shows.
     #[account(address = anchor_spl::token::ID)]

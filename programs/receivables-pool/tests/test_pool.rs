@@ -102,9 +102,11 @@ fn test_repaying_returns_the_units_and_frees_the_token() {
     let org = borrower(&mut env, 1_000 * UNIT);
     borrow(&mut env, &org, 1_000 * UNIT, 500 * USDC, 4);
 
-    // Repaying needs the epoch opened, not its marking finished.
+    // Repaying needs the epoch opened, not its marking finished. The issuer
+    // has frozen the borrower's account, which doesn't stop the repayment.
     env.set_time(T0 + 10 * DAY);
     env.fund_usdc(&org.pubkey(), 10 * USDC);
+    env.freeze_token_account(&org.pubkey());
     let ixs = [
         env.settle_ix(&org.pubkey()),
         env.repay_ix(&org.pubkey(), &org.pubkey(), u64::MAX),
@@ -113,11 +115,21 @@ fn test_repaying_returns_the_units_and_frees_the_token() {
 
     // 500 at 12% for 10 days is 1.643835 of interest.
     assert_eq!(env.usdc_balance(&org.pubkey()), 510 * USDC - 501_643_835);
-    assert_eq!(env.balance(&env.collateral_vault(&org.pubkey())), 0);
     assert!(!env.loan_state(&org.pubkey()).is_open);
-    assert_eq!(env.units_of(&org.pubkey()), 1_000 * UNIT);
     let pool = env.pool_state();
     assert_eq!((pool.performing_loans(), pool.marked_loans), (0, 0));
+
+    // The units wait in the loan's vault until the borrower withdraws them,
+    // which waits for the account to be thawed.
+    let vault = env.collateral_vault(&org.pubkey());
+    assert_eq!(env.balance(&vault), 1_000 * UNIT);
+    let ix = env.withdraw_units_ix(&org.pubkey());
+    assert!(env.send(&[ix], &[&org]).is_err());
+    env.thaw_token_account(&org.pubkey());
+    let ix = env.withdraw_units_ix(&org.pubkey());
+    env.send(&[ix], &[&org]).unwrap();
+    assert_eq!(env.balance(&vault), 0);
+    assert_eq!(env.units_of(&org.pubkey()), 1_000 * UNIT);
 
     // The same loan account takes the borrower's next loan.
     borrow(&mut env, &org, 1_000 * UNIT, 100 * USDC, 4);
@@ -443,7 +455,8 @@ fn test_a_loan_nobody_can_mark_is_marked_stale_after_the_window() {
     let ix = env.mark_stale_ix(&[&org.pubkey()]);
     env.send_expecting_error(&[ix], &[&creator], "MarkWindowOpen");
 
-    // A day in, the window has closed: the loan counts at 20% until read.
+    // A day in, the window has closed: the loan counts at 20% for the rest
+    // of the epoch.
     env.set_time(T0 + EPOCH + DAY);
     let full = env.pool_state().nav(env.now).unwrap();
     let owed = env.loan_state(&org.pubkey()).owed(env.now).unwrap();
@@ -458,6 +471,14 @@ fn test_a_loan_nobody_can_mark_is_marked_stale_after_the_window() {
     env.settle();
     let d = env.depositor(10 * USDC);
     assert!(env.shares_of(&d.pubkey()) > 0);
+
+    // A fresh mark after the deposits doesn't lift NAV this epoch, so
+    // nobody can buy shares at the discount and then clear it.
+    let low = env.pool_state().nav(env.now).unwrap();
+    let proven = env.post_token();
+    let ix = env.mark_loans_ix(vec![proven], &[&org.pubkey()]);
+    env.send(&[ix], &[&creator]).unwrap();
+    assert_eq!(env.pool_state().nav(env.now).unwrap(), low);
 
     // Read again next epoch, the discount goes.
     env.set_time(T0 + 2 * EPOCH);

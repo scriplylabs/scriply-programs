@@ -92,7 +92,7 @@ impl Loan {
                 principal_repaid: 0,
             });
         }
-        self.clear_stale(pool);
+        self.drop_old_stale(pool);
         let is_impaired = self.is_impaired(pool);
         if is_impaired {
             self.set_impaired_value(pool)?;
@@ -122,6 +122,7 @@ impl Loan {
         } else {
             pool.remove_accrual(self.maturity_epoch, &before)?;
             pool.add_accrual(self.maturity_epoch, &self.accrual()?)?;
+            self.shrink_stale(pool, now)?;
         }
         pool.idle = to_u64(add(pool.idle as u128, applied as u128)?)?;
         Ok(Payment {
@@ -136,7 +137,7 @@ impl Loan {
     pub fn close_repaid(&mut self, pool: &mut Pool) -> Result<()> {
         require!(self.is_open, PoolError::LoanClosed);
         require!(self.is_repaid(), PoolError::LoanOpen);
-        self.clear_stale(pool);
+        self.release_stale(pool);
         if self.is_impaired(pool) {
             self.set_impaired_value(pool)?;
             pool.impaired_value = pool.impaired_value.saturating_sub(self.impaired_value);
@@ -151,9 +152,10 @@ impl Loan {
     }
 
     /// Marks the loan from its token's facts, read from a root with
-    /// `root_as_of`: clears any stale discount and, if the facts are bad,
-    /// writes the loan down at `now`. Returns whether this was the loan's
-    /// first mark of the epoch.
+    /// `root_as_of`: if the facts are bad, writes the loan down at `now`.
+    /// A stale discount set this epoch stays until the next epoch's start,
+    /// so nobody can deposit at the discounted NAV and then lift it.
+    /// Returns whether this was the loan's first mark of the epoch.
     pub fn mark(
         &mut self,
         pool: &mut Pool,
@@ -167,7 +169,7 @@ impl Loan {
             PoolError::RootOlderThanLastRead
         );
         self.last_root_as_of = root_as_of;
-        self.clear_stale(pool);
+        self.drop_old_stale(pool);
         if is_written_down {
             self.write_down(pool, now)?;
         }
@@ -175,13 +177,14 @@ impl Loan {
     }
 
     /// Marks the loan stale: its token couldn't be read this epoch, so NAV
-    /// counts it at the pool's impaired share, as if written down, until a
-    /// fresh mark or a payment clears it. A loan already impaired counts no
+    /// counts it at the pool's impaired share, as if written down, for the
+    /// rest of the epoch. A payment only keeps the discount within what the
+    /// loan still owes. A loan already impaired counts no
     /// lower. Returns whether this was the loan's first mark of the epoch.
     pub fn mark_stale(&mut self, pool: &mut Pool, now: i64) -> Result<bool> {
         require!(self.is_open, PoolError::NotALoan);
         require!(!self.is_marked(pool), PoolError::AlreadyMarked);
-        self.clear_stale(pool);
+        self.drop_old_stale(pool);
         if !self.is_impaired(pool) {
             let owed = self.owed(now)? as u128;
             let kept = mul_div(owed, pool.impaired_share_bps as u128, BPS as u128)?;
@@ -211,9 +214,45 @@ impl Loan {
         self.marked_epoch == pool.settled_epoch
     }
 
-    fn clear_stale(&mut self, pool: &mut Pool) {
-        pool.stale_discount = pool.stale_discount.saturating_sub(self.stale_discount);
+    /// Whether the loan's stale discount is in the pool's: it was set this
+    /// epoch. An epoch's start resets the pool's, so an older one isn't.
+    fn is_stale(&self, pool: &Pool) -> bool {
+        self.stale_discount > 0 && self.is_marked(pool)
+    }
+
+    /// Forgets a stale discount from an earlier epoch, which the pool's
+    /// total no longer holds.
+    fn drop_old_stale(&mut self, pool: &Pool) {
+        if !self.is_stale(pool) {
+            self.stale_discount = 0;
+        }
+    }
+
+    /// Takes the loan's stale discount out of NAV's, once something else
+    /// counts the loan: a write-down, or closing it repaid.
+    fn release_stale(&mut self, pool: &mut Pool) {
+        if self.is_stale(pool) {
+            pool.stale_discount = pool.stale_discount.saturating_sub(self.stale_discount);
+        }
         self.stale_discount = 0;
+    }
+
+    /// Keeps a stale discount within what the loan, paid down at `now`,
+    /// still owes, so a payment's USDC isn't discounted again.
+    fn shrink_stale(&mut self, pool: &mut Pool, now: i64) -> Result<()> {
+        if !self.is_stale(pool) {
+            return Ok(());
+        }
+        let owed = self.owed(now)? as u128;
+        let kept = mul_div(owed, pool.impaired_share_bps as u128, BPS as u128)?;
+        let cap = to_u64(owed - kept)?;
+        if cap < self.stale_discount {
+            pool.stale_discount = pool
+                .stale_discount
+                .saturating_sub(self.stale_discount - cap);
+            self.stale_discount = cap;
+        }
+        Ok(())
     }
 
     /// Writes the loan down at `now`: NAV stops counting its accrual and
@@ -223,6 +262,9 @@ impl Loan {
         if self.is_impaired(pool) {
             return Ok(());
         }
+        // The write-down counts the loan at the impaired share, as the
+        // stale discount did, so the discount goes.
+        self.release_stale(pool);
         let accrual = self.accrual()?;
         pool.remove_accrual(self.maturity_epoch, &accrual)?;
         pool.remove_performing_loan(self.maturity_epoch, self.is_marked(pool));
@@ -388,7 +430,7 @@ mod tests {
     }
 
     #[test]
-    fn test_a_stale_loan_is_discounted_until_a_fresh_mark() {
+    fn test_a_stale_loan_is_discounted_for_the_rest_of_the_epoch() {
         let mut p = pool();
         p.impaired_share_bps = 2_000;
         let mut l = opened(&mut p, 500_000_000, 13);
@@ -398,19 +440,71 @@ mod tests {
         let owed = l.owed(now).unwrap();
         assert!(l.mark_stale(&mut p, now).unwrap());
         assert!(l.mark_stale(&mut p, now).is_err(), "already marked");
-        assert_eq!(p.nav(now).unwrap(), full - (owed - owed / 5));
+        let discounted = full - (owed - owed / 5);
+        assert_eq!(p.nav(now).unwrap(), discounted);
         assert!(p.is_marked());
 
-        // Still unread next epoch: the discount is refreshed, not doubled.
+        // A fresh mark, or a payment of 1, in the same epoch lifts nothing.
+        l.mark(&mut p, T0 + 20, false, now).unwrap();
+        assert_eq!(p.nav(now).unwrap(), discounted);
+        l.apply_payment(&mut p, 1, now).unwrap();
+        assert!(p.nav(now).unwrap() <= discounted + 1);
+
+        // The next epoch's start ends it, and a fresh mark keeps it ended.
         p.open_epoch(2).unwrap();
         let later = p.epoch_start(2);
-        l.mark_stale(&mut p, later).unwrap();
-        let owed_later = l.owed(later).unwrap();
-        assert_eq!(p.stale_discount, owed_later - owed_later / 5);
-
-        l.mark(&mut p, T0 + 20, false, later).unwrap();
         assert_eq!(p.stale_discount, 0);
-        assert_eq!(p.nav(later).unwrap(), 500_000_000 + owed_later);
+        l.mark(&mut p, T0 + 30, false, later).unwrap();
+        assert_eq!(l.stale_discount, 0);
+        assert_eq!(p.nav(later).unwrap(), p.idle + l.owed(later).unwrap());
+    }
+
+    #[test]
+    fn test_a_deposit_at_a_stale_nav_gains_nothing_from_a_late_mark() {
+        // The reviewer's case: a 1M pool, one 100k loan left unmarked.
+        let mut p = pool();
+        p.idle = 1_000_000_000_000;
+        let mut l = opened(&mut p, 100_000_000_000, 13);
+        p.open_epoch(1).unwrap();
+        let now = p.epoch_start(1) + DAY;
+        l.mark_stale(&mut p, now).unwrap();
+        let low = p.nav(now).unwrap();
+        l.mark(&mut p, T0 + 20, false, now).unwrap();
+        assert_eq!(p.nav(now).unwrap(), low);
+    }
+
+    #[test]
+    fn test_a_payment_keeps_the_stale_discount_within_what_is_owed() {
+        let mut p = pool();
+        let mut l = opened(&mut p, 500_000_000, 13);
+        p.open_epoch(1).unwrap();
+        let now = p.epoch_start(1);
+        l.mark_stale(&mut p, now).unwrap();
+        let low = p.nav(now).unwrap();
+        // Paying 90% leaves the loan counted at 0, not below it.
+        let owed = l.owed(now).unwrap();
+        l.apply_payment(&mut p, owed / 10 * 9, now).unwrap();
+        assert_eq!(p.stale_discount, l.owed(now).unwrap());
+        assert_eq!(p.nav(now).unwrap(), low + owed / 10 * 9);
+    }
+
+    #[test]
+    fn test_impairing_a_stale_loan_counts_its_loss_once() {
+        // The reviewer's case: maturity 4, grace 2, stale every epoch.
+        let mut p = pool();
+        p.grace_epochs = 2;
+        p.idle = 900_000_000_000;
+        let mut l = opened(&mut p, 100_000_000_000, 4);
+        for epoch in 1..6 {
+            p.open_epoch(epoch).unwrap();
+            let now = p.epoch_start(epoch) + DAY;
+            l.mark_stale(&mut p, now).unwrap();
+        }
+        p.open_epoch(6).unwrap();
+        assert!(l.is_impaired(&p));
+        // Impaired at a share of 0: NAV is the idle USDC, counted once.
+        assert_eq!(p.nav(p.epoch_start(6)).unwrap(), p.idle);
+        assert_eq!(p.idle, 800_000_000_000);
     }
 
     #[test]

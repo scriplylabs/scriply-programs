@@ -8,6 +8,7 @@ pub mod repay;
 pub mod request_withdrawal;
 pub mod settle_epoch;
 pub mod sync_loan;
+pub mod withdraw_units;
 
 pub use borrow::*;
 pub use claim_withdrawal::*;
@@ -19,3 +20,4 @@ pub use repay::*;
 pub use request_withdrawal::*;
 pub use settle_epoch::*;
 pub use sync_loan::*;
+pub use withdraw_units::*;
