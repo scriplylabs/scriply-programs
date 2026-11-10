@@ -12,7 +12,14 @@ import { ActionButton, AddressLink, AmountField, ErrorNote, Loading, Stat } from
 import { WithSigner } from '../wallet';
 import { describeLoan, PoolTabs } from './Pool';
 
-function Actions({ signer, at, loanAddress, loan, owed, onDone }: { signer: TransactionSendingSigner; at: PoolAt; loanAddress: Address; loan: Loan; owed: bigint; onDone: () => void }) {
+/**
+ * How far ahead "Repay all" counts interest. `repay` takes at most what is
+ * owed when it lands, so a day's margin closes the loan however long the
+ * wallet stays open, and costs the payer nothing extra.
+ */
+const REPAY_ALL_MARGIN_SECONDS = 86_400n;
+
+function Actions({ signer, at, loanAddress, loan, repayAll, onDone }: { signer: TransactionSendingSigner; at: PoolAt; loanAddress: Address; loan: Loan; repayAll: bigint; onDone: () => void }) {
   const [amount, setAmount] = useState('');
   const d = at.pool.quoteDecimals;
   const repay = parseAmount(amount, d);
@@ -22,8 +29,11 @@ function Actions({ signer, at, loanAddress, loan, owed, onDone }: { signer: Tran
       {loan.isOpen && (
         <div className="panel">
           <h3>Repay</h3>
-          <p className="muted">Anyone may repay a loan, interest first. Once nothing is owed it closes, and its units wait in its vault for the borrower.</p>
-          <AmountField label="Amount" unit="USDC" value={amount} onChange={setAmount} hint={<button className="link" onClick={() => setAmount(formatAmount(owed + 10n ** BigInt(d - 2), d, d).replace(/,/g, ''))}>Repay all</button>} />
+          <p className="muted">
+            Anyone may repay a loan, interest first. Once nothing is owed it closes, and its units wait in its vault for the borrower. The pool
+            takes no more than is owed when the payment lands, so an amount above it is safe: the rest stays in your account.
+          </p>
+          <AmountField label="Amount" unit="USDC" value={amount} onChange={setAmount} hint={<button className="link" onClick={() => setAmount(formatAmount(repayAll, d, d).replace(/,/g, ''))}>Repay all</button>} />
           <ActionButton
             label="Repay"
             disabled={!repay}
@@ -98,7 +108,7 @@ export function LoanScreen({ poolAddress, pool, loanAddress }: { poolAddress: Ad
                 at={{ address: poolAddress, pool }}
                 loanAddress={loanAddress}
                 loan={state.data!.loan}
-                owed={state.data!.loan.isOpen ? owedOnLoan(state.data!.loan, now) : 0n}
+                repayAll={state.data!.loan.isOpen ? owedOnLoan(state.data!.loan, now + REPAY_ALL_MARGIN_SECONDS) : 0n}
                 onDone={state.reload}
               />
             )}
