@@ -23,7 +23,14 @@ pub struct ClaimWithdrawal<'info> {
         associated_token::token_program = quote_token_program,
     )]
     pub quote_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(mut, token::mint = quote_mint, token::authority = owner)]
+    /// The owner's associated USDC account: anyone may claim for them, so
+    /// the caller can't pick where the owner's USDC goes.
+    #[account(
+        mut,
+        associated_token::mint = quote_mint,
+        associated_token::authority = owner,
+        associated_token::token_program = quote_token_program,
+    )]
     pub owner_quote: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
         mut,

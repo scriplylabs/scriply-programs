@@ -150,7 +150,11 @@ export type ClaimWithdrawalAsyncInput<
   poolAuthority?: TAccountPoolAuthority;
   quoteMint: TAccountQuoteMint;
   quoteVault?: TAccountQuoteVault;
-  ownerQuote: TAccountOwnerQuote;
+  /**
+   * The owner's associated USDC account: anyone may claim for them, so
+   * the caller can't pick where the owner's USDC goes.
+   */
+  ownerQuote?: TAccountOwnerQuote;
   request?: TAccountRequest;
   /**
    * The record of the request's generation, which exists once an
@@ -321,6 +325,32 @@ export async function getClaimWithdrawalInstructionAsync<
       ],
     });
   }
+  if (!accounts.ownerQuote.value) {
+    accounts.ownerQuote.value = await getProgramDerivedAddress({
+      programAddress:
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL" as Address<"ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL">,
+      seeds: [
+        getAddressEncoder().encode(
+          getAddressFromResolvedInstructionAccount(
+            "owner",
+            accounts.owner.value,
+          ),
+        ),
+        getAddressEncoder().encode(
+          getAddressFromResolvedInstructionAccount(
+            "quoteTokenProgram",
+            accounts.quoteTokenProgram.value,
+          ),
+        ),
+        getAddressEncoder().encode(
+          getAddressFromResolvedInstructionAccount(
+            "quoteMint",
+            accounts.quoteMint.value,
+          ),
+        ),
+      ],
+    });
+  }
   if (!accounts.request.value) {
     accounts.request.value = await findRequestPda(
       {
@@ -415,6 +445,10 @@ export type ClaimWithdrawalInput<
   poolAuthority: TAccountPoolAuthority;
   quoteMint: TAccountQuoteMint;
   quoteVault: TAccountQuoteVault;
+  /**
+   * The owner's associated USDC account: anyone may claim for them, so
+   * the caller can't pick where the owner's USDC goes.
+   */
   ownerQuote: TAccountOwnerQuote;
   request: TAccountRequest;
   /**
@@ -616,6 +650,10 @@ export type ParsedClaimWithdrawalInstruction<
     poolAuthority: TAccountMetas[2];
     quoteMint: TAccountMetas[3];
     quoteVault: TAccountMetas[4];
+    /**
+     * The owner's associated USDC account: anyone may claim for them, so
+     * the caller can't pick where the owner's USDC goes.
+     */
     ownerQuote: TAccountMetas[5];
     request: TAccountMetas[6];
     /**

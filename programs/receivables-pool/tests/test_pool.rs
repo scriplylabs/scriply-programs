@@ -611,6 +611,12 @@ fn test_withdrawals_wait_while_the_pool_is_lent_out() {
     assert_eq!((pool.idle, pool.reserved), (0, 400 * USDC));
     assert_eq!((pool.withdrawal_generation, pool.pending_shares), (1, 0));
     let keeper = env.wallet();
+    // The USDC goes only to the depositor's associated account: a keeper
+    // can't send it to another account the depositor owns.
+    let side = env.side_usdc_account(&depositor_b.pubkey());
+    let mut ix = env.claim_withdrawal_ix(&depositor_b.pubkey(), 0);
+    ix.accounts[5].pubkey = side;
+    env.send_expecting_error(&[ix], &[&keeper], "ConstraintAssociated");
     let ix = env.claim_withdrawal_ix(&depositor_b.pubkey(), 0);
     env.send(&[ix], &[&keeper]).unwrap();
     assert_eq!(env.usdc_balance(&depositor_b.pubkey()), 400 * USDC);
