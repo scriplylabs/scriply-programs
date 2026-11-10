@@ -73,6 +73,16 @@ pub struct LoanClosed {
     pub collateral_mint: Pubkey,
 }
 
+/// A loan whose units were all gone, with `amount` still owed, came off
+/// NAV and closed.
+#[event]
+pub struct LoanWrittenOff {
+    pub pool: Pubkey,
+    pub collateral_mint: Pubkey,
+    pub borrower: Pubkey,
+    pub amount: u64,
+}
+
 #[event]
 pub struct UnitsWithdrawn {
     pub pool: Pubkey,

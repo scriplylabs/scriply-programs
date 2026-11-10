@@ -12,6 +12,7 @@ export * from "./loanClosed";
 export * from "./loanMarked";
 export * from "./loanOpened";
 export * from "./loanPaid";
+export * from "./loanWrittenOff";
 export * from "./poolCreated";
 export * from "./unitsWithdrawn";
 export * from "./withdrawalClaimed";

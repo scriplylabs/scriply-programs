@@ -6,7 +6,7 @@ use anchor_spl::{
 
 use crate::{
     constants::*,
-    events::{LoanClosed, LoanPaid},
+    events::{LoanClosed, LoanPaid, LoanWrittenOff},
     state::*,
     tokens,
 };
@@ -112,10 +112,10 @@ impl<'info> LoanTokens<'info> {
 }
 
 /// Sets USDC paid for a loan's units against it and records the units left
-/// in its vault, then closes it if nothing is owed. Anyone may call it:
-/// units leave the vault and USDC arrives without the pool acting (a
-/// buy-back, the agent's redemption, a last-resort burn), and each is one
-/// fixed rule.
+/// in its vault, then closes it if nothing is owed, or writes it off if its
+/// units are gone. Anyone may call it: units leave the vault and USDC
+/// arrives without the pool acting (a buy-back, the agent's redemption),
+/// and each is one fixed rule.
 pub fn handle_sync_loan(ctx: Context<SyncLoan>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let pool_key = ctx.accounts.pool.key();
@@ -135,6 +135,7 @@ pub fn handle_sync_loan(ctx: Context<SyncLoan>) -> Result<()> {
     )?;
     record_units(&mut a.loan, &mut a.loan_tokens)?;
     close_if_repaid(&mut pool, &mut a.loan)?;
+    write_off_if_units_gone(&mut pool, &mut a.loan, &mut a.exposure, now)?;
     Ok(())
 }
 
@@ -197,6 +198,30 @@ pub fn record_units<'info>(
 ) -> Result<()> {
     t.collateral_vault.reload()?;
     loan.units = t.collateral_vault.amount;
+    Ok(())
+}
+
+/// Writes the loan off once its vault is empty and it still owes: nothing
+/// is left to recover it from, so what it owes comes off NAV. That is a
+/// fact the vault shows, not a judgement, and leaving the loan open would
+/// keep NAV counting it at the impaired share for ever.
+pub fn write_off_if_units_gone<'info>(
+    pool: &mut Pool,
+    loan: &mut Account<'info, Loan>,
+    exposure: &mut Account<'info, TokenExposure>,
+    now: i64,
+) -> Result<()> {
+    if !loan.is_open || loan.units > 0 {
+        return Ok(());
+    }
+    exposure.principal = exposure.principal.saturating_sub(loan.principal);
+    let amount = loan.write_off(pool, now)?;
+    emit!(LoanWrittenOff {
+        pool: loan.pool,
+        collateral_mint: loan.collateral_mint,
+        borrower: loan.borrower,
+        amount,
+    });
     Ok(())
 }
 

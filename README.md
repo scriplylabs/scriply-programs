@@ -22,7 +22,7 @@ A lending pool with no admin. Anyone creates a pool with fixed parameters, inclu
 | `borrow` | Holders of a token | Pledges units with the token's snapshot and proof, and borrows up to the advance the risk engine allows, at the rate it sets, fixed for the loan |
 | `repay` | Anyone | Pays towards a loan, interest first; once nothing is owed it closes |
 | `withdraw_units` | The borrower | Moves a closed loan's remaining units from its vault to the borrower, once the borrower's account for the token is thawed |
-| `sync_loan` | Anyone | Sets USDC paid for a loan's units (a buy-back, the collateral agent's redemption) against the loan and records the units left in its vault |
+| `sync_loan` | Anyone | Sets USDC paid for a loan's units (a buy-back, the collateral agent's redemption) against the loan and records the units left in its vault; writes the loan off once its vault is empty and it still owes |
 
 ### How it decides
 
@@ -37,7 +37,8 @@ A lending pool with no admin. Anyone creates a pool with fixed parameters, inclu
 
 ### Limits of this version
 
-- **One open loan per borrower per token per pool.** Each borrower's units sit in their own vault, which the token's issuer thaws once, so a borrower's second loan against a token waits for the first to close. A loan whose units are all burned and never paid for stays open and impaired, and needs no more marks.
+- **A loan whose units are all gone is written off.** When a sync finds the vault empty after setting what was paid against the loan, nothing is left to recover it from: what it still owes comes off NAV, the depositors' loss, and the loan closes. USDC that arrives for it later still goes to the pool, up to what was written off, and only the rest to the borrower. Units leave a vault only when someone pays for them (the buy-back, the collateral agent's redemption), so a write-off is what a recovery short of the loan leaves.
+- **One open loan per borrower per token per pool.** Each borrower's units sit in their own vault, which the token's issuer thaws once, so a borrower's second loan against a token waits for the first to close.
 - **Fixed rates only.** `RateMode::Variable` is declared and refused until it is built.
 - **Proofs are large.** A transaction holds about two tokens' proofs at thousands of tokens; see `docs/snapshot.md`.
 - **One withdrawal request per wallet** at a time; it closes once paid in full.

@@ -293,8 +293,8 @@ pub struct Loan {
     pub bump: u8,
     pub is_open: bool,
     /// The units in the vault when the loan was last synced. Units leave
-    /// without the pool acting (a buy-back, the agent's redemption, a
-    /// last-resort burn), so the vault's balance is the truth.
+    /// without the pool acting (a buy-back, the agent's redemption), so the
+    /// vault's balance is the truth.
     pub units: u64,
     pub principal: u64,
     /// Interest accrued before `accrual_start` and not yet paid.
@@ -322,6 +322,11 @@ pub struct Loan {
     pub last_root_as_of: i64,
     /// What NAV takes off for this loan while it is marked stale.
     pub stale_discount: u64,
+    /// What the loan still owed when it was written off, its units gone,
+    /// less what has been paid for it since. USDC that arrives for it
+    /// later goes to the pool up to this, and only the rest to the
+    /// borrower.
+    pub written_off: u64,
 }
 
 /// What a pool has lent against one token, across its borrowers, at

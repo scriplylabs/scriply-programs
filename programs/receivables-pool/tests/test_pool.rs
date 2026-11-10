@@ -137,6 +137,48 @@ fn test_repaying_returns_the_units_and_frees_the_token() {
 }
 
 #[test]
+fn test_a_loan_whose_units_are_gone_is_written_off() {
+    let mut env = Env::new();
+    env.depositor(2_000 * USDC);
+    let org = borrower(&mut env, 1_000 * UNIT);
+    borrow(&mut env, &org, 1_000 * UNIT, 500 * USDC, 13);
+    let creator = env.creator.insecure_clone();
+
+    // The collateral agent recovers 300 for every unit: the loan still owes.
+    env.set_time(T0 + 10 * DAY);
+    env.buy_back(&org.pubkey(), 1_000 * UNIT, 300 * USDC);
+    let ixs = [
+        env.settle_ix(&creator.pubkey()),
+        env.sync_loan_ix(&org.pubkey()),
+    ];
+    env.send(&ixs, &[&creator]).unwrap();
+    let loan = env.loan_state(&org.pubkey());
+    assert!(!loan.is_open);
+    assert!(loan.written_off > 0);
+    assert_eq!(env.exposure_state().principal, 0);
+    let pool = env.pool_state();
+    assert_eq!(pool.nav(env.now).unwrap(), pool.idle);
+    assert_eq!(pool.idle, 1_800 * USDC);
+
+    // More recovered later goes to the pool, not the borrower.
+    let funding = env.fund_usdc(&creator.pubkey(), 50 * USDC);
+    let proceeds = ata(&env.loan(&org.pubkey()), &env.usdc, &spl_token::ID);
+    let ix = spl_token::instruction::transfer(
+        &spl_token::ID,
+        &funding,
+        &proceeds,
+        &creator.pubkey(),
+        &[],
+        50 * USDC,
+    )
+    .unwrap();
+    env.send(&[ix, env.sync_loan_ix(&org.pubkey())], &[&creator])
+        .unwrap();
+    assert_eq!(env.pool_state().idle, 1_850 * USDC);
+    assert_eq!(env.usdc_balance(&org.pubkey()), 500 * USDC);
+}
+
+#[test]
 fn test_units_sent_to_a_vault_before_its_first_loan_dont_block_it() {
     // The vault is thawed before its loan exists, so anyone holding the
     // token can send it units; no loan exists to withdraw them through.

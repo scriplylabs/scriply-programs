@@ -67,8 +67,8 @@ export type Loan = {
   isOpen: boolean;
   /**
    * The units in the vault when the loan was last synced. Units leave
-   * without the pool acting (a buy-back, the agent's redemption, a
-   * last-resort burn), so the vault's balance is the truth.
+   * without the pool acting (a buy-back, the agent's redemption), so the
+   * vault's balance is the truth.
    */
   units: bigint;
   principal: bigint;
@@ -103,6 +103,13 @@ export type Loan = {
   lastRootAsOf: bigint;
   /** What NAV takes off for this loan while it is marked stale. */
   staleDiscount: bigint;
+  /**
+   * What the loan still owed when it was written off, its units gone,
+   * less what has been paid for it since. USDC that arrives for it
+   * later goes to the pool up to this, and only the rest to the
+   * borrower.
+   */
+  writtenOff: bigint;
 };
 
 export type LoanArgs = {
@@ -114,8 +121,8 @@ export type LoanArgs = {
   isOpen: boolean;
   /**
    * The units in the vault when the loan was last synced. Units leave
-   * without the pool acting (a buy-back, the agent's redemption, a
-   * last-resort burn), so the vault's balance is the truth.
+   * without the pool acting (a buy-back, the agent's redemption), so the
+   * vault's balance is the truth.
    */
   units: number | bigint;
   principal: number | bigint;
@@ -150,6 +157,13 @@ export type LoanArgs = {
   lastRootAsOf: number | bigint;
   /** What NAV takes off for this loan while it is marked stale. */
   staleDiscount: number | bigint;
+  /**
+   * What the loan still owed when it was written off, its units gone,
+   * less what has been paid for it since. USDC that arrives for it
+   * later goes to the pool up to this, and only the rest to the
+   * borrower.
+   */
+  writtenOff: number | bigint;
 };
 
 /** Gets the encoder for {@link LoanArgs} account data. */
@@ -177,6 +191,7 @@ export function getLoanEncoder(): FixedSizeEncoder<LoanArgs> {
       ["markedEpoch", getU64Encoder()],
       ["lastRootAsOf", getI64Encoder()],
       ["staleDiscount", getU64Encoder()],
+      ["writtenOff", getU64Encoder()],
     ]),
     (value) => ({ ...value, discriminator: LOAN_DISCRIMINATOR }),
   );
@@ -206,6 +221,7 @@ export function getLoanDecoder(): FixedSizeDecoder<Loan> {
     ["markedEpoch", getU64Decoder()],
     ["lastRootAsOf", getI64Decoder()],
     ["staleDiscount", getU64Decoder()],
+    ["writtenOff", getU64Decoder()],
   ]);
 }
 
@@ -284,5 +300,5 @@ export async function fetchAllMaybeLoan(
 }
 
 export function getLoanSize(): number {
-  return 193;
+  return 201;
 }

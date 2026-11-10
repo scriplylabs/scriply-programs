@@ -28,7 +28,7 @@ const SHARE_DECIMALS_OFFSET = 3;
 /** Where a loan stands in the pool's epoch. */
 export function describeLoan(pool: Pool, loan: Loan): string {
   if (!loan.isOpen) {
-    return 'Closed';
+    return loan.writtenOff > 0n ? 'Written off' : 'Closed';
   }
   if (isLoanImpaired(pool, loan)) {
     return loan.isWrittenDown ? 'Written down' : 'Impaired';

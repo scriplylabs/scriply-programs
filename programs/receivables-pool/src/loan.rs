@@ -72,6 +72,7 @@ impl Loan {
         self.marked_epoch = pool.settled_epoch;
         self.last_root_as_of = o.root_as_of;
         self.stale_discount = 0;
+        self.written_off = 0;
         pool.add_accrual(o.maturity_epoch, &self.accrual()?)?;
         pool.idle = pool
             .idle
@@ -86,9 +87,14 @@ impl Loan {
     /// nothing, so all of it is.
     pub fn apply_payment(&mut self, pool: &mut Pool, amount: u64, now: i64) -> Result<Payment> {
         if !self.is_open {
+            // A recovery for a loan written off is the pool's, up to what
+            // was written off.
+            let recovered = amount.min(self.written_off);
+            self.written_off -= recovered;
+            pool.idle = to_u64(add(pool.idle as u128, recovered as u128)?)?;
             return Ok(Payment {
-                applied: 0,
-                excess: amount,
+                applied: recovered,
+                excess: amount - recovered,
                 principal_repaid: 0,
             });
         }
@@ -149,6 +155,29 @@ impl Loan {
         self.impaired_value = 0;
         self.is_impaired_value_set = false;
         Ok(())
+    }
+
+    /// Writes the loan off at `now`, once its units are gone and what was
+    /// paid for them didn't repay it: NAV stops counting what it still
+    /// owes, which is the depositors' loss, and the loan closes. USDC paid
+    /// for it later still goes to the pool (`apply_payment`). Returns what
+    /// was written off.
+    pub fn write_off(&mut self, pool: &mut Pool, now: i64) -> Result<u64> {
+        require!(self.is_open, PoolError::LoanClosed);
+        let owed = self.owed(now)?;
+        // Counted at the impaired share first, whatever it was counted at,
+        // then not at all.
+        self.write_down(pool, now)?;
+        self.set_impaired_value(pool)?;
+        pool.impaired_value = pool.impaired_value.saturating_sub(self.impaired_value);
+        self.principal = 0;
+        self.carried_interest = 0;
+        self.is_open = false;
+        self.is_written_down = false;
+        self.impaired_value = 0;
+        self.is_impaired_value_set = false;
+        self.written_off = owed;
+        Ok(owed)
     }
 
     /// Marks the loan from its token's facts, read from a root with
@@ -332,6 +361,7 @@ mod tests {
             marked_epoch: 0,
             last_root_as_of: 0,
             stale_discount: 0,
+            written_off: 0,
         }
     }
 
@@ -396,6 +426,41 @@ mod tests {
         l.close_repaid(&mut p).unwrap();
         assert_eq!(p.nav(now).unwrap(), 500_000_000 + payment.applied);
         assert_eq!(p.impaired_value, 0);
+    }
+
+    #[test]
+    fn test_writing_off_a_performing_loan_takes_what_it_owes_off_nav() {
+        let mut p = pool();
+        let mut l = opened(&mut p, 500_000_000, 13);
+        let now = T0 + 90 * DAY;
+        l.apply_payment(&mut p, 300_000_000, now).unwrap();
+        let owed = l.owed(now).unwrap();
+        assert_eq!(l.write_off(&mut p, now).unwrap(), owed);
+        assert!(!l.is_open);
+        assert_eq!(p.nav(now).unwrap(), p.idle);
+        assert!(p.buckets.iter().all(|b| b.accrual().is_empty()));
+        assert_eq!(
+            (p.performing_loans(), p.marked_loans, p.impaired_value),
+            (0, 0, 0)
+        );
+
+        // USDC that arrives later is the pool's, up to what was written off.
+        let late = l.apply_payment(&mut p, owed + 5, now).unwrap();
+        assert_eq!((late.applied, late.excess), (owed, 5));
+        assert_eq!(l.written_off, 0);
+    }
+
+    #[test]
+    fn test_writing_off_an_impaired_loan_takes_its_impaired_value_off_nav() {
+        let mut p = pool();
+        p.impaired_share_bps = 5_000;
+        let mut l = opened(&mut p, 500_000_000, 2);
+        p.open_epoch(3).unwrap();
+        let now = p.epoch_start(3);
+        assert!(p.nav(now).unwrap() > p.idle, "counted at half");
+        l.write_off(&mut p, now).unwrap();
+        assert_eq!(p.impaired_value, 0);
+        assert_eq!(p.nav(now).unwrap(), p.idle);
     }
 
     #[test]
