@@ -119,7 +119,7 @@ fn snapshots() -> Vec<Vec<u8>> {
     (1..=3u8)
         .map(|i| {
             Snapshot {
-                version: 1,
+                version: 2,
                 mint: [i; 32],
                 as_of: T0,
                 burn_debt_overdue: i == 2,

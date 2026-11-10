@@ -8,8 +8,8 @@ use crate::{constants::*, error::PoolError, events::EpochSettled, state::*, toke
 
 #[derive(Accounts)]
 pub struct SettleEpoch<'info> {
-    /// Anyone may settle; they pay the rent of a generation record when one
-    /// is written.
+    /// Anyone may settle; they pay the rent of the generation record
+    /// written when withdrawals are paid.
     #[account(mut)]
     pub payer: Signer<'info>,
     #[account(mut, has_one = share_mint)]
@@ -28,7 +28,7 @@ pub struct SettleEpoch<'info> {
     pub share_escrow: Box<InterfaceAccount<'info, TokenAccount>>,
     /// CHECK: the record of the pool's current withdrawal generation, at
     /// [GENERATION_SEED, pool, generation]; written only if this settlement
-    /// ends the generation, and checked in the handler.
+    /// pays withdrawals, and checked in the handler.
     #[account(mut)]
     pub generation_record: UncheckedAccount<'info>,
     #[account(address = anchor_spl::token::ID)]
@@ -65,6 +65,15 @@ pub fn handle_settle_epoch(ctx: Context<SettleEpoch>) -> Result<()> {
     let authority_bump = pool.authority_bump;
     drop(pool);
 
+    let Some(settlement) = settlement else {
+        emit!(EpochSettled {
+            pool: pool_key,
+            epoch,
+            withdrawals_paid: 0,
+            shares_burned: 0,
+        });
+        return Ok(());
+    };
     let a = &ctx.accounts;
     tokens::burn(
         &a.share_token_program,
@@ -74,19 +83,19 @@ pub fn handle_settle_epoch(ctx: Context<SettleEpoch>) -> Result<()> {
         &[&[AUTHORITY_SEED, pool_key.as_ref(), &[authority_bump]]],
         settlement.shares_burned,
     )?;
-    if let Some((generation, final_paid_per_norm)) = settlement.ended_generation {
-        write_generation_record(
-            &a.payer,
-            &a.generation_record,
-            &a.system_program,
-            WithdrawalGeneration {
-                version: ACCOUNT_VERSION,
-                pool: pool_key,
-                generation,
-                final_paid_per_norm,
-            },
-        )?;
-    }
+    write_generation_record(
+        &a.payer,
+        &a.generation_record,
+        &a.system_program,
+        WithdrawalGeneration {
+            version: ACCOUNT_VERSION,
+            pool: pool_key,
+            generation: settlement.generation,
+            shares: settlement.shares,
+            shares_paid: settlement.shares_burned,
+            paid: settlement.paid,
+        },
+    )?;
 
     emit!(EpochSettled {
         pool: pool_key,

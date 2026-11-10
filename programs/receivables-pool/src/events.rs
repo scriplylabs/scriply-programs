@@ -26,6 +26,8 @@ pub struct WithdrawalClaimed {
     pub pool: Pubkey,
     pub owner: Pubkey,
     pub amount: u64,
+    /// Shares left unpaid and queued again for the next epoch's start.
+    pub shares_requeued: u64,
 }
 
 #[event]
@@ -69,6 +71,16 @@ pub struct LoanPaid {
 pub struct LoanClosed {
     pub pool: Pubkey,
     pub collateral_mint: Pubkey,
+}
+
+/// A loan whose units were all gone, with `amount` still owed, came off
+/// NAV and closed.
+#[event]
+pub struct LoanWrittenOff {
+    pub pool: Pubkey,
+    pub collateral_mint: Pubkey,
+    pub borrower: Pubkey,
+    pub amount: u64,
 }
 
 #[event]

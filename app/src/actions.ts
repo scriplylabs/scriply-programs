@@ -90,10 +90,18 @@ export async function buildRequestWithdrawal(owner: TransactionSigner, p: PoolAt
   ];
 }
 
-export async function buildClaimWithdrawal(owner: TransactionSigner, p: PoolAt, generation: bigint): Promise<Instruction[]> {
-  const ownerQuote = await findTokenAccount(owner.address, p.pool.quoteMint, TOKEN_PROGRAM_ADDRESS);
+/**
+ * Claims a settled withdrawal request for `owner`: pays them what its
+ * generation set aside and queues its unpaid shares again (README:
+ * `claim_withdrawal`). Anyone may send it; `payer` pays the fees and, if
+ * the owner has none, their USDC account's rent. Settling first lets the
+ * unpaid shares join the epoch's queue.
+ */
+export async function buildClaimWithdrawal(payer: TransactionSigner, p: PoolAt, owner: Address, generation: bigint): Promise<Instruction[]> {
+  const ownerQuote = await findTokenAccount(owner, p.pool.quoteMint, TOKEN_PROGRAM_ADDRESS);
   return [
-    await getCreateAssociatedTokenIdempotentInstructionAsync({ payer: owner, owner: owner.address, mint: p.pool.quoteMint, tokenProgram: TOKEN_PROGRAM_ADDRESS }),
+    await buildSettleEpoch(payer, p),
+    await getCreateAssociatedTokenIdempotentInstructionAsync({ payer, owner, mint: p.pool.quoteMint, tokenProgram: TOKEN_PROGRAM_ADDRESS }),
     await getClaimWithdrawalInstructionAsync({
       owner,
       pool: p.address,

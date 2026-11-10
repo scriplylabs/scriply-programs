@@ -10,14 +10,14 @@ use snapshot_roots::{
 
 use crate::{error::PoolError, state::Pool};
 
-pub use snapshot_roots::token_snapshot::{Snapshot, SnapshotError, SNAPSHOT_V1_LEN};
+pub use snapshot_roots::token_snapshot::{Snapshot, SnapshotError};
 
 /// A token's snapshot and its proof, as a keeper or borrower hands them in.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct ProvenSnapshot {
     /// The root the proof is against; it must be the signer's latest.
     pub root: [u8; 32],
-    /// The snapshot's bytes, in layout version 1 or later.
+    /// The snapshot's bytes, in layout version 2 or later.
     pub snapshot: Vec<u8>,
     /// The leaf's siblings from the bottom up.
     pub proof: Vec<[u8; 32]>,

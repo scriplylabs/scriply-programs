@@ -28,7 +28,7 @@ const SHARE_DECIMALS_OFFSET = 3;
 /** Where a loan stands in the pool's epoch. */
 export function describeLoan(pool: Pool, loan: Loan): string {
   if (!loan.isOpen) {
-    return 'Closed';
+    return loan.writtenOff > 0n ? 'Written off' : 'Closed';
   }
   if (isLoanImpaired(pool, loan)) {
     return loan.isWrittenDown ? 'Written down' : 'Impaired';
@@ -117,6 +117,8 @@ function PoolFacts({ address, pool, shareSupply, now }: { address: Address; pool
           <dd>{formatBps(pool.risk.weight31To60Bps)}</dd>
           <dt>Refuses when late</dt>
           <dd>more than {formatBps(pool.risk.maxLateShareBps)} of units past {pool.risk.lateAfterDays} days</dd>
+          <dt>Refuses when burn debt was overdue</dt>
+          <dd>more than {pool.risk.maxDaysBurnDebtOverdue} days in the past year</dd>
           <dt>Rate</dt>
           <dd>
             {formatBps(pool.risk.baseRateBps)} base, within {formatBps(pool.risk.minRateBps)}–{formatBps(pool.risk.maxRateBps)}; spreads up to{' '}
@@ -181,8 +183,8 @@ function Position({ signer, at, shareSupply, now, onDone }: { signer: Transactio
         <h3>Withdraw</h3>
         <p className="muted">
           You hold {formatAmount(h.shares, shareDecimals, 4)} shares, worth {formatAmount(valueOfShares(pool, h.shares, shareSupply, now), d)} USDC today. A
-          request is paid at the next epoch's start, at the NAV then; when idle USDC can't pay every request, each is paid the same share and the rest
-          waits.
+          request is paid at the next epoch's start, at the NAV then; when idle USDC can't pay every request, each is paid the same share of what it
+          asked, and claiming queues the rest for the epoch after.
         </p>
         <AmountField label="Shares" unit="shares" value={withdraw} onChange={setWithdraw} />
         <ActionButton
@@ -191,12 +193,20 @@ function Position({ signer, at, shareSupply, now, onDone }: { signer: Transactio
           run={async () => sendInstructions(signer, await buildRequestWithdrawal(signer, at, withdrawShares!))}
           onDone={done}
         />
-        {h.request && (
+        {h.request && h.request.generation >= pool.withdrawalGeneration && (
           <div className="notice">
-            <p>You have a withdrawal request in generation {h.request.generation.toString()}. Claim what has been paid towards it.</p>
+            <p>{formatAmount(h.request.shares, shareDecimals, 4)} of your shares are queued, to be paid at the next epoch's start.</p>
+          </div>
+        )}
+        {h.request && h.request.generation < pool.withdrawalGeneration && (
+          <div className="notice">
+            <p>
+              Your request for {formatAmount(h.request.shares, shareDecimals, 4)} shares has been settled. Claim what it was paid; any shares left
+              unpaid are queued again for the next epoch's start.
+            </p>
             <ActionButton
               label="Claim"
-              run={async () => sendInstructions(signer, await buildClaimWithdrawal(signer, at, h.request!.generation))}
+              run={async () => sendInstructions(signer, await buildClaimWithdrawal(signer, at, signer.address, h.request!.generation))}
               onDone={done}
             />
           </div>

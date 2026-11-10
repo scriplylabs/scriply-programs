@@ -118,6 +118,7 @@ struct Risk {
 struct Reject {
     late_after_days: u16,
     max_late_share_bps: u16,
+    max_days_burn_debt_overdue: u16,
 }
 
 #[derive(Deserialize)]
@@ -203,6 +204,7 @@ impl ConfigFile {
                 dispute_spread_bps: self.risk.rate.dispute_spread_bps,
                 late_after_days: self.risk.reject.late_after_days,
                 max_late_share_bps: self.risk.reject.max_late_share_bps,
+                max_days_burn_debt_overdue: self.risk.reject.max_days_burn_debt_overdue,
                 beyond_terms_spread_bps: self.risk.rate.beyond_terms_spread_bps,
                 beyond_terms_cap_days: self.risk.rate.beyond_terms_cap_days,
                 not_on_time_spread_bps: self.risk.rate.not_on_time_spread_bps,
@@ -229,7 +231,8 @@ mod tests {
         assert_eq!(p.network, "sol-devnet");
         assert_eq!(p.maturities, vec![4, 13]);
         assert_eq!(p.risk.max_advance_bps, 9_000);
-        assert_eq!(p.risk.late_after_days, 90);
+        assert_eq!(p.risk.late_after_days, 30);
+        assert_eq!(p.risk.max_days_burn_debt_overdue, 0);
         assert_eq!(p.risk.no_history_spread_bps, 200);
         assert_eq!(p.rate_mode, RateMode::Fixed);
         assert!(p.depositor_attestation.is_none());

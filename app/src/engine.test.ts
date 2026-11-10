@@ -22,6 +22,7 @@ function params(): RiskParams {
     disputeSpreadBps: 1_000,
     lateAfterDays: 90,
     maxLateShareBps: 5_000,
+    maxDaysBurnDebtOverdue: 0,
     beyondTermsSpreadBps: 300,
     beyondTermsCapDays: 60,
     notOnTimeSpreadBps: 400,
@@ -32,7 +33,7 @@ function params(): RiskParams {
 /** risk_engine.rs's `clean()`. */
 function clean(): Snapshot {
   return {
-    version: 1,
+    version: 2,
     network: '',
     mint: new Uint8Array(32),
     asOf: 0n,
@@ -53,6 +54,8 @@ function clean(): Snapshot {
     weightedDaysBeyondTerms: 0,
     paidOnTimeShareBps: 10_000,
     historyShareBps: 10_000,
+    weightedDaysInBurnDebt: 0,
+    daysBurnDebtOverdue: 0,
   };
 }
 
@@ -103,6 +106,12 @@ describe('assessBorrow, as risk_engine.rs tests it', () => {
 
   it('refuses overdue burn debt', () => {
     expect(assessBorrow(params(), { ...clean(), burnDebtOverdue: true }, VALUE, TERM)).toEqual({ refusal: 'BurnDebtOverdue' });
+  });
+
+  it('refuses burn debt overdue in the past year, up to what the pool allows', () => {
+    const late = { ...clean(), daysBurnDebtOverdue: 2 };
+    expect(assessBorrow(params(), late, VALUE, TERM)).toEqual({ refusal: 'BurnDebtHistoryOverdue' });
+    expect(assessBorrow({ ...params(), maxDaysBurnDebtOverdue: 2 }, late, VALUE, TERM)).toHaveProperty('terms');
   });
 
   it('refuses too much late', () => {

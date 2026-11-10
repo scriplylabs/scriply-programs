@@ -39,7 +39,8 @@ pub struct RequestWithdrawal<'info> {
 
 /// Asks to withdraw `shares`. They move to escrow and are paid at the next
 /// epoch's start, at that start's NAV per share; until paid they keep
-/// sharing the pool's interest and losses.
+/// sharing the pool's interest and losses. If idle USDC pays only part,
+/// claiming queues the rest for the epoch after.
 pub fn handle_request_withdrawal(ctx: Context<RequestWithdrawal>, shares: u64) -> Result<()> {
     require!(shares > 0, PoolError::ZeroAmount);
     let now = Clock::get()?.unix_timestamp;
@@ -47,15 +48,14 @@ pub fn handle_request_withdrawal(ctx: Context<RequestWithdrawal>, shares: u64) -
     let owner = ctx.accounts.owner.key();
     let mut pool = ctx.accounts.pool.load_mut()?;
     pool.require_settled(now)?;
-    let norm = pool.queue_withdrawal(shares)?;
+    pool.queue_withdrawal(shares)?;
     let request = &mut ctx.accounts.request;
     request.version = ACCOUNT_VERSION;
     request.pool = pool_key;
     request.owner = owner;
     request.bump = ctx.bumps.request;
     request.generation = pool.withdrawal_generation;
-    request.norm = norm;
-    request.paid_per_norm_claimed = pool.paid_per_norm.get();
+    request.shares = shares;
     drop(pool);
 
     let a = &ctx.accounts;

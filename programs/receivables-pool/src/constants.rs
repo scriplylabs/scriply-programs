@@ -38,9 +38,6 @@ pub const SHARE_DECIMALS_OFFSET: u8 = 3;
 pub const VIRTUAL_SHARES: u64 = 1_000;
 pub const VIRTUAL_ASSETS: u64 = 1;
 
-/// Fixed-point scale for the withdrawal queue's indices.
-pub const INDEX_SCALE: u128 = 1_000_000_000_000_000_000;
-
 /// The Solana Attestation Service, the same on mainnet and devnet.
 pub const SAS_PROGRAM_ID: Pubkey = pubkey!("22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG");
 

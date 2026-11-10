@@ -57,6 +57,8 @@ pub enum PoolError {
     MintedSinceSnapshot,
     #[msg("The token has overdue burn debt")]
     BurnDebtOverdue,
+    #[msg("The token's burn debt was overdue for more days in the past year than the pool allows")]
+    BurnDebtHistoryOverdue,
     #[msg("None of the token's units are eligible")]
     NoEligibleUnits,
     #[msg("More of the token's units are late than the pool allows")]
@@ -69,6 +71,8 @@ pub enum PoolError {
     LoanOpen,
     #[msg("The loan is closed")]
     LoanClosed,
+    #[msg("This borrower's last loan against this token was written off and isn't recovered yet")]
+    LoanWrittenOff,
     #[msg("Units from this borrower's last loan are still in its vault: withdraw them first")]
     UnitsNotWithdrawn,
     #[msg("That maturity is not one of the pool's")]
@@ -97,8 +101,6 @@ pub enum PoolError {
     ZeroAmount,
     #[msg("The deposit is too small to buy a share")]
     DepositTooSmall,
-    #[msg("The withdrawal's generation has ended: pass its generation record")]
-    GenerationRecordRequired,
     #[msg("The generation record passed is not the one this account needs")]
     WrongGenerationRecord,
 

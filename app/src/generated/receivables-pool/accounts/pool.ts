@@ -53,14 +53,10 @@ import {
   getMaturityBucketEncoder,
   getRiskParamsDecoder,
   getRiskParamsEncoder,
-  getWideDecoder,
-  getWideEncoder,
   type MaturityBucket,
   type MaturityBucketArgs,
   type RiskParams,
   type RiskParamsArgs,
-  type Wide,
-  type WideArgs,
 } from "../types";
 
 export const POOL_DISCRIMINATOR: ReadonlyUint8Array = new Uint8Array([
@@ -131,24 +127,12 @@ export type Pool = {
   /** Shares held in escrow waiting to be paid at an epoch's start. */
   pendingShares: bigint;
   /**
-   * The withdrawal queue's generation, which ends whenever an epoch's
-   * start pays every pending withdrawal in full.
+   * The withdrawal queue's generation, which ends at every epoch start
+   * that has withdrawals to pay.
    */
   withdrawalGeneration: bigint;
   /** Performing loans marked in the settled epoch. */
   markedLoans: bigint;
-  /**
-   * The share of each withdrawal still unpaid in this generation, scaled
-   * by INDEX_SCALE.
-   */
-  remainingFactor: Wide;
-  /**
-   * The USDC paid per normalized withdrawal share in this generation,
-   * scaled by INDEX_SCALE.
-   */
-  paidPerNorm: Wide;
-  /** The sum of every pending withdrawal's normalized shares. */
-  pendingNorm: Wide;
   /** The loan terms allowed, in epochs; the first `maturity_count` are set. */
   maturities: Array<number>;
   risk: RiskParams;
@@ -233,24 +217,12 @@ export type PoolArgs = {
   /** Shares held in escrow waiting to be paid at an epoch's start. */
   pendingShares: number | bigint;
   /**
-   * The withdrawal queue's generation, which ends whenever an epoch's
-   * start pays every pending withdrawal in full.
+   * The withdrawal queue's generation, which ends at every epoch start
+   * that has withdrawals to pay.
    */
   withdrawalGeneration: number | bigint;
   /** Performing loans marked in the settled epoch. */
   markedLoans: number | bigint;
-  /**
-   * The share of each withdrawal still unpaid in this generation, scaled
-   * by INDEX_SCALE.
-   */
-  remainingFactor: WideArgs;
-  /**
-   * The USDC paid per normalized withdrawal share in this generation,
-   * scaled by INDEX_SCALE.
-   */
-  paidPerNorm: WideArgs;
-  /** The sum of every pending withdrawal's normalized shares. */
-  pendingNorm: WideArgs;
   /** The loan terms allowed, in epochs; the first `maturity_count` are set. */
   maturities: Array<number>;
   risk: RiskParamsArgs;
@@ -302,9 +274,6 @@ export function getPoolEncoder(): FixedSizeEncoder<PoolArgs> {
       ["pendingShares", getU64Encoder()],
       ["withdrawalGeneration", getU64Encoder()],
       ["markedLoans", getU64Encoder()],
-      ["remainingFactor", getWideEncoder()],
-      ["paidPerNorm", getWideEncoder()],
-      ["pendingNorm", getWideEncoder()],
       ["maturities", getArrayEncoder(getU16Encoder(), { size: 8 })],
       ["risk", getRiskParamsEncoder()],
       ["capPerTokenBps", getU16Encoder()],
@@ -320,7 +289,7 @@ export function getPoolEncoder(): FixedSizeEncoder<PoolArgs> {
       ["version", getU8Encoder()],
       ["rateMode", getU8Encoder()],
       ["riskModel", getU8Encoder()],
-      ["padding", fixEncoderSize(getBytesEncoder(), 5)],
+      ["padding", fixEncoderSize(getBytesEncoder(), 3)],
       ["spare", fixEncoderSize(getBytesEncoder(), 256)],
       ["buckets", getArrayEncoder(getMaturityBucketEncoder(), { size: 64 })],
     ]),
@@ -353,9 +322,6 @@ export function getPoolDecoder(): FixedSizeDecoder<Pool> {
     ["pendingShares", getU64Decoder()],
     ["withdrawalGeneration", getU64Decoder()],
     ["markedLoans", getU64Decoder()],
-    ["remainingFactor", getWideDecoder()],
-    ["paidPerNorm", getWideDecoder()],
-    ["pendingNorm", getWideDecoder()],
     ["maturities", getArrayDecoder(getU16Decoder(), { size: 8 })],
     ["risk", getRiskParamsDecoder()],
     ["capPerTokenBps", getU16Decoder()],
@@ -371,7 +337,7 @@ export function getPoolDecoder(): FixedSizeDecoder<Pool> {
     ["version", getU8Decoder()],
     ["rateMode", getU8Decoder()],
     ["riskModel", getU8Decoder()],
-    ["padding", fixDecoderSize(getBytesDecoder(), 5)],
+    ["padding", fixDecoderSize(getBytesDecoder(), 3)],
     ["spare", fixDecoderSize(getBytesDecoder(), 256)],
     ["buckets", getArrayDecoder(getMaturityBucketDecoder(), { size: 64 })],
   ]);
@@ -452,5 +418,5 @@ export async function fetchAllMaybePool(
 }
 
 export function getPoolSize(): number {
-  return 8096;
+  return 8048;
 }

@@ -42,12 +42,16 @@ export type WithdrawalClaimedEvent = {
   pool: Address;
   owner: Address;
   amount: bigint;
+  /** Shares left unpaid and queued again for the next epoch's start. */
+  sharesRequeued: bigint;
 };
 
 export type WithdrawalClaimedEventArgs = {
   pool: Address | HasAddress;
   owner: Address | HasAddress;
   amount: number | bigint;
+  /** Shares left unpaid and queued again for the next epoch's start. */
+  sharesRequeued: number | bigint;
 };
 
 /** Gets the encoder for {@link WithdrawalClaimedEventArgs} event data. */
@@ -57,6 +61,7 @@ export function getWithdrawalClaimedEventEncoder(): FixedSizeEncoder<WithdrawalC
       ["pool", getAddressEncoder()],
       ["owner", getAddressEncoder()],
       ["amount", getU64Encoder()],
+      ["sharesRequeued", getU64Encoder()],
     ]),
     [getConstantEncoder(WITHDRAWAL_CLAIMED_EVENT_DISCRIMINATOR)],
   );
@@ -69,6 +74,7 @@ export function getWithdrawalClaimedEventDecoder(): FixedSizeDecoder<WithdrawalC
       ["pool", getAddressDecoder()],
       ["owner", getAddressDecoder()],
       ["amount", getU64Decoder()],
+      ["sharesRequeued", getU64Decoder()],
     ]),
     [getConstantDecoder(WITHDRAWAL_CLAIMED_EVENT_DISCRIMINATOR)],
   );

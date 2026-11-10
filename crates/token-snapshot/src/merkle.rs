@@ -119,7 +119,7 @@ mod tests {
         (1..=n)
             .map(|i| {
                 Snapshot {
-                    version: 1,
+                    version: 2,
                     mint: [i; 32],
                     ..Snapshot::default()
                 }

@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::constants::*;
+use crate::{constants::*, math::*};
 
 /// A u128 stored as two u64s, so zero-copy accounts have the same layout on
 /// the host (where u128 aligns to 16) as on-chain (where it aligns to 8).
@@ -62,6 +62,9 @@ pub struct RiskParams {
     pub late_after_days: u16,
     /// Refuses a borrow when more of the token's units than this are late.
     pub max_late_share_bps: u16,
+    /// Refuses a borrow when the token's burn debt was overdue for more
+    /// than this many days in the year before its snapshot.
+    pub max_days_burn_debt_overdue: u16,
     /// Priced in full when the customers pay `beyond_terms_cap_days` or
     /// more after the due date.
     pub beyond_terms_spread_bps: u16,
@@ -166,19 +169,11 @@ pub struct Pool {
     pub stale_discount: u64,
     /// Shares held in escrow waiting to be paid at an epoch's start.
     pub pending_shares: u64,
-    /// The withdrawal queue's generation, which ends whenever an epoch's
-    /// start pays every pending withdrawal in full.
+    /// The withdrawal queue's generation, which ends at every epoch start
+    /// that has withdrawals to pay.
     pub withdrawal_generation: u64,
     /// Performing loans marked in the settled epoch.
     pub marked_loans: u64,
-    /// The share of each withdrawal still unpaid in this generation, scaled
-    /// by INDEX_SCALE.
-    pub remaining_factor: Wide,
-    /// The USDC paid per normalized withdrawal share in this generation,
-    /// scaled by INDEX_SCALE.
-    pub paid_per_norm: Wide,
-    /// The sum of every pending withdrawal's normalized shares.
-    pub pending_norm: Wide,
     /// The loan terms allowed, in epochs; the first `maturity_count` are set.
     pub maturities: [u16; MAX_MATURITIES],
     pub risk: RiskParams,
@@ -198,7 +193,7 @@ pub struct Pool {
     pub rate_mode: u8,
     /// A RiskModel.
     pub risk_model: u8,
-    pub padding: [u8; 5],
+    pub padding: [u8; 3],
     /// Room for fields a later layout version adds without moving any.
     pub spare: [u8; 256],
     pub buckets: [MaturityBucket; BUCKETS],
@@ -247,6 +242,9 @@ pub struct RiskConfig {
     pub late_after_days: u16,
     /// Refuses a borrow when more of the token's units than this are late.
     pub max_late_share_bps: u16,
+    /// Refuses a borrow when the token's burn debt was overdue for more
+    /// than this many days in the year before its snapshot.
+    pub max_days_burn_debt_overdue: u16,
     /// Priced in full when the customers pay `beyond_terms_cap_days` or
     /// more after the due date.
     pub beyond_terms_spread_bps: u16,
@@ -273,6 +271,7 @@ impl From<RiskConfig> for RiskParams {
             dispute_spread_bps: c.dispute_spread_bps,
             late_after_days: c.late_after_days,
             max_late_share_bps: c.max_late_share_bps,
+            max_days_burn_debt_overdue: c.max_days_burn_debt_overdue,
             beyond_terms_spread_bps: c.beyond_terms_spread_bps,
             beyond_terms_cap_days: c.beyond_terms_cap_days,
             not_on_time_spread_bps: c.not_on_time_spread_bps,
@@ -301,8 +300,8 @@ pub struct Loan {
     pub bump: u8,
     pub is_open: bool,
     /// The units in the vault when the loan was last synced. Units leave
-    /// without the pool acting (a buy-back, the agent's redemption, a
-    /// last-resort burn), so the vault's balance is the truth.
+    /// without the pool acting (a buy-back, the agent's redemption), so the
+    /// vault's balance is the truth.
     pub units: u64,
     pub principal: u64,
     /// Interest accrued before `accrual_start` and not yet paid.
@@ -330,6 +329,11 @@ pub struct Loan {
     pub last_root_as_of: i64,
     /// What NAV takes off for this loan while it is marked stale.
     pub stale_discount: u64,
+    /// What the loan still owed when it was written off, its units gone,
+    /// less what has been paid for it since. USDC that arrives for it
+    /// later goes to the pool up to this, and only the rest to the
+    /// borrower.
+    pub written_off: u64,
 }
 
 /// What a pool has lent against one token, across its borrowers, at
@@ -354,21 +358,43 @@ pub struct WithdrawalRequest {
     pub pool: Pubkey,
     pub owner: Pubkey,
     pub bump: u8,
+    /// The generation the shares are queued in.
     pub generation: u64,
-    /// The request's shares, normalized by the generation's remaining factor
-    /// when it was made, scaled by INDEX_SCALE.
-    pub norm: u128,
-    /// The generation's `paid_per_norm` when the request last claimed.
-    pub paid_per_norm_claimed: u128,
+    pub shares: u64,
 }
 
-/// What a finished generation of the withdrawal queue paid per normalized
-/// share, so requests from it can claim after it ends.
+/// What an ended generation of the withdrawal queue asked and paid, so its
+/// requests can claim after it ends.
 #[account]
 #[derive(InitSpace)]
 pub struct WithdrawalGeneration {
     pub version: u8,
     pub pool: Pubkey,
     pub generation: u64,
-    pub final_paid_per_norm: u128,
+    /// Shares the generation's requests asked to withdraw.
+    pub shares: u64,
+    /// Of those, the shares paid for.
+    pub shares_paid: u64,
+    /// USDC set aside for them.
+    pub paid: u64,
+}
+
+impl WithdrawalGeneration {
+    /// What a request for `shares` in this generation is owed: the USDC it
+    /// is paid, and its shares left unpaid. Both round down, so the
+    /// generation's requests are never owed more than it set aside, nor
+    /// given back more shares than it left in escrow.
+    pub fn owed_to(&self, shares: u64) -> Result<(u64, u64)> {
+        let usdc = to_u64(mul_div(
+            shares as u128,
+            self.paid as u128,
+            self.shares as u128,
+        )?)?;
+        let unpaid = to_u64(mul_div(
+            shares as u128,
+            (self.shares - self.shares_paid) as u128,
+            self.shares as u128,
+        )?)?;
+        Ok((usdc, unpaid))
+    }
 }

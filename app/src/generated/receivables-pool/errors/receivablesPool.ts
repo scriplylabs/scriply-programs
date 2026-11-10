@@ -63,59 +63,61 @@ export const RECEIVABLES_POOL_ERROR__WRONG_MINT = 0x1785; // 6021
 export const RECEIVABLES_POOL_ERROR__MINTED_SINCE_SNAPSHOT = 0x1786; // 6022
 /** BurnDebtOverdue: The token has overdue burn debt */
 export const RECEIVABLES_POOL_ERROR__BURN_DEBT_OVERDUE = 0x1787; // 6023
+/** BurnDebtHistoryOverdue: The token's burn debt was overdue for more days in the past year than the pool allows */
+export const RECEIVABLES_POOL_ERROR__BURN_DEBT_HISTORY_OVERDUE = 0x1788; // 6024
 /** NoEligibleUnits: None of the token's units are eligible */
-export const RECEIVABLES_POOL_ERROR__NO_ELIGIBLE_UNITS = 0x1788; // 6024
+export const RECEIVABLES_POOL_ERROR__NO_ELIGIBLE_UNITS = 0x1789; // 6025
 /** TooMuchLate: More of the token's units are late than the pool allows */
-export const RECEIVABLES_POOL_ERROR__TOO_MUCH_LATE = 0x1789; // 6025
+export const RECEIVABLES_POOL_ERROR__TOO_MUCH_LATE = 0x178a; // 6026
 /** TermTooShort: The term ends before the token's invoices are expected to be collected */
-export const RECEIVABLES_POOL_ERROR__TERM_TOO_SHORT = 0x178a; // 6026
+export const RECEIVABLES_POOL_ERROR__TERM_TOO_SHORT = 0x178b; // 6027
 /** LoanOpen: This borrower already has an open loan against this token in this pool */
-export const RECEIVABLES_POOL_ERROR__LOAN_OPEN = 0x178b; // 6027
+export const RECEIVABLES_POOL_ERROR__LOAN_OPEN = 0x178c; // 6028
 /** LoanClosed: The loan is closed */
-export const RECEIVABLES_POOL_ERROR__LOAN_CLOSED = 0x178c; // 6028
+export const RECEIVABLES_POOL_ERROR__LOAN_CLOSED = 0x178d; // 6029
+/** LoanWrittenOff: This borrower's last loan against this token was written off and isn't recovered yet */
+export const RECEIVABLES_POOL_ERROR__LOAN_WRITTEN_OFF = 0x178e; // 6030
 /** UnitsNotWithdrawn: Units from this borrower's last loan are still in its vault: withdraw them first */
-export const RECEIVABLES_POOL_ERROR__UNITS_NOT_WITHDRAWN = 0x178d; // 6029
+export const RECEIVABLES_POOL_ERROR__UNITS_NOT_WITHDRAWN = 0x178f; // 6031
 /** MaturityNotOffered: That maturity is not one of the pool's */
-export const RECEIVABLES_POOL_ERROR__MATURITY_NOT_OFFERED = 0x178e; // 6030
+export const RECEIVABLES_POOL_ERROR__MATURITY_NOT_OFFERED = 0x1790; // 6032
 /** ExceedsAdvance: The loan exceeds the advance the risk engine allows for the units pledged */
-export const RECEIVABLES_POOL_ERROR__EXCEEDS_ADVANCE = 0x178f; // 6031
+export const RECEIVABLES_POOL_ERROR__EXCEEDS_ADVANCE = 0x1791; // 6033
 /** ExceedsTokenCap: The loan would take this token's loans past the pool's cap */
-export const RECEIVABLES_POOL_ERROR__EXCEEDS_TOKEN_CAP = 0x1790; // 6032
+export const RECEIVABLES_POOL_ERROR__EXCEEDS_TOKEN_CAP = 0x1792; // 6034
 /** InsufficientLiquidity: The pool has too little idle USDC for the loan */
-export const RECEIVABLES_POOL_ERROR__INSUFFICIENT_LIQUIDITY = 0x1791; // 6033
+export const RECEIVABLES_POOL_ERROR__INSUFFICIENT_LIQUIDITY = 0x1793; // 6035
 /** BucketInUse: Two live maturities would share a bucket */
-export const RECEIVABLES_POOL_ERROR__BUCKET_IN_USE = 0x1792; // 6034
+export const RECEIVABLES_POOL_ERROR__BUCKET_IN_USE = 0x1794; // 6036
 /** NotALoan: The account is not an open loan of this pool */
-export const RECEIVABLES_POOL_ERROR__NOT_A_LOAN = 0x1793; // 6035
+export const RECEIVABLES_POOL_ERROR__NOT_A_LOAN = 0x1795; // 6037
 /** MarkWindowOpen: The epoch's marking window is still open */
-export const RECEIVABLES_POOL_ERROR__MARK_WINDOW_OPEN = 0x1794; // 6036
+export const RECEIVABLES_POOL_ERROR__MARK_WINDOW_OPEN = 0x1796; // 6038
 /** AlreadyMarked: The loan was already marked this epoch */
-export const RECEIVABLES_POOL_ERROR__ALREADY_MARKED = 0x1795; // 6037
+export const RECEIVABLES_POOL_ERROR__ALREADY_MARKED = 0x1797; // 6039
 /** AttestationRequired: This pool requires the depositor's wallet to hold its attestation */
-export const RECEIVABLES_POOL_ERROR__ATTESTATION_REQUIRED = 0x1796; // 6038
+export const RECEIVABLES_POOL_ERROR__ATTESTATION_REQUIRED = 0x1798; // 6040
 /** InvalidAttestation: The attestation is not the pool's for this wallet, or has expired */
-export const RECEIVABLES_POOL_ERROR__INVALID_ATTESTATION = 0x1797; // 6039
+export const RECEIVABLES_POOL_ERROR__INVALID_ATTESTATION = 0x1799; // 6041
 /** ZeroAmount: The amount must be above zero */
-export const RECEIVABLES_POOL_ERROR__ZERO_AMOUNT = 0x1798; // 6040
+export const RECEIVABLES_POOL_ERROR__ZERO_AMOUNT = 0x179a; // 6042
 /** DepositTooSmall: The deposit is too small to buy a share */
-export const RECEIVABLES_POOL_ERROR__DEPOSIT_TOO_SMALL = 0x1799; // 6041
-/** GenerationRecordRequired: The withdrawal's generation has ended: pass its generation record */
-export const RECEIVABLES_POOL_ERROR__GENERATION_RECORD_REQUIRED = 0x179a; // 6042
+export const RECEIVABLES_POOL_ERROR__DEPOSIT_TOO_SMALL = 0x179b; // 6043
 /** WrongGenerationRecord: The generation record passed is not the one this account needs */
-export const RECEIVABLES_POOL_ERROR__WRONG_GENERATION_RECORD = 0x179b; // 6043
+export const RECEIVABLES_POOL_ERROR__WRONG_GENERATION_RECORD = 0x179c; // 6044
 /** MathOverflow: Arithmetic overflow */
-export const RECEIVABLES_POOL_ERROR__MATH_OVERFLOW = 0x179c; // 6044
+export const RECEIVABLES_POOL_ERROR__MATH_OVERFLOW = 0x179d; // 6045
 
 export type ReceivablesPoolError =
   | typeof RECEIVABLES_POOL_ERROR__ALREADY_MARKED
   | typeof RECEIVABLES_POOL_ERROR__ATTESTATION_REQUIRED
   | typeof RECEIVABLES_POOL_ERROR__BUCKET_IN_USE
+  | typeof RECEIVABLES_POOL_ERROR__BURN_DEBT_HISTORY_OVERDUE
   | typeof RECEIVABLES_POOL_ERROR__BURN_DEBT_OVERDUE
   | typeof RECEIVABLES_POOL_ERROR__DEPOSIT_TOO_SMALL
   | typeof RECEIVABLES_POOL_ERROR__EPOCH_NOT_SETTLED
   | typeof RECEIVABLES_POOL_ERROR__EXCEEDS_ADVANCE
   | typeof RECEIVABLES_POOL_ERROR__EXCEEDS_TOKEN_CAP
-  | typeof RECEIVABLES_POOL_ERROR__GENERATION_RECORD_REQUIRED
   | typeof RECEIVABLES_POOL_ERROR__INSUFFICIENT_LIQUIDITY
   | typeof RECEIVABLES_POOL_ERROR__INVALID_ADVANCE
   | typeof RECEIVABLES_POOL_ERROR__INVALID_ATTESTATION
@@ -131,6 +133,7 @@ export type ReceivablesPoolError =
   | typeof RECEIVABLES_POOL_ERROR__INVALID_SIGNERS
   | typeof RECEIVABLES_POOL_ERROR__LOAN_CLOSED
   | typeof RECEIVABLES_POOL_ERROR__LOAN_OPEN
+  | typeof RECEIVABLES_POOL_ERROR__LOAN_WRITTEN_OFF
   | typeof RECEIVABLES_POOL_ERROR__MARK_WINDOW_OPEN
   | typeof RECEIVABLES_POOL_ERROR__MATH_OVERFLOW
   | typeof RECEIVABLES_POOL_ERROR__MATURITY_NOT_OFFERED
@@ -160,12 +163,12 @@ if (process.env["NODE_ENV"] !== "production") {
     [RECEIVABLES_POOL_ERROR__ALREADY_MARKED]: `The loan was already marked this epoch`,
     [RECEIVABLES_POOL_ERROR__ATTESTATION_REQUIRED]: `This pool requires the depositor's wallet to hold its attestation`,
     [RECEIVABLES_POOL_ERROR__BUCKET_IN_USE]: `Two live maturities would share a bucket`,
+    [RECEIVABLES_POOL_ERROR__BURN_DEBT_HISTORY_OVERDUE]: `The token's burn debt was overdue for more days in the past year than the pool allows`,
     [RECEIVABLES_POOL_ERROR__BURN_DEBT_OVERDUE]: `The token has overdue burn debt`,
     [RECEIVABLES_POOL_ERROR__DEPOSIT_TOO_SMALL]: `The deposit is too small to buy a share`,
     [RECEIVABLES_POOL_ERROR__EPOCH_NOT_SETTLED]: `A new epoch has started: settle it first`,
     [RECEIVABLES_POOL_ERROR__EXCEEDS_ADVANCE]: `The loan exceeds the advance the risk engine allows for the units pledged`,
     [RECEIVABLES_POOL_ERROR__EXCEEDS_TOKEN_CAP]: `The loan would take this token's loans past the pool's cap`,
-    [RECEIVABLES_POOL_ERROR__GENERATION_RECORD_REQUIRED]: `The withdrawal's generation has ended: pass its generation record`,
     [RECEIVABLES_POOL_ERROR__INSUFFICIENT_LIQUIDITY]: `The pool has too little idle USDC for the loan`,
     [RECEIVABLES_POOL_ERROR__INVALID_ADVANCE]: `The advance rates must satisfy base <= max <= 10000 bps`,
     [RECEIVABLES_POOL_ERROR__INVALID_ATTESTATION]: `The attestation is not the pool's for this wallet, or has expired`,
@@ -181,6 +184,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [RECEIVABLES_POOL_ERROR__INVALID_SIGNERS]: `A pool needs between 1 and 8 signers`,
     [RECEIVABLES_POOL_ERROR__LOAN_CLOSED]: `The loan is closed`,
     [RECEIVABLES_POOL_ERROR__LOAN_OPEN]: `This borrower already has an open loan against this token in this pool`,
+    [RECEIVABLES_POOL_ERROR__LOAN_WRITTEN_OFF]: `This borrower's last loan against this token was written off and isn't recovered yet`,
     [RECEIVABLES_POOL_ERROR__MARK_WINDOW_OPEN]: `The epoch's marking window is still open`,
     [RECEIVABLES_POOL_ERROR__MATH_OVERFLOW]: `Arithmetic overflow`,
     [RECEIVABLES_POOL_ERROR__MATURITY_NOT_OFFERED]: `That maturity is not one of the pool's`,

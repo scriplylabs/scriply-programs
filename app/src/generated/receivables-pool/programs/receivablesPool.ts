@@ -190,6 +190,7 @@ export enum ReceivablesPoolEvent {
   LoanMarked,
   LoanOpened,
   LoanPaid,
+  LoanWrittenOff,
   PoolCreated,
   UnitsWithdrawn,
   WithdrawalClaimed,
@@ -265,6 +266,17 @@ export function identifyReceivablesPoolEvent(
     )
   ) {
     return ReceivablesPoolEvent.LoanPaid;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([89, 196, 180, 66, 99, 174, 0, 66]),
+      ),
+      0,
+    )
+  ) {
+    return ReceivablesPoolEvent.LoanWrittenOff;
   }
   if (
     containsBytes(

@@ -71,7 +71,8 @@ pub mod receivables_pool {
         instructions::request_withdrawal::handle_request_withdrawal(ctx, shares)
     }
 
-    /// Pays what epoch starts have set aside for a withdrawal.
+    /// Pays what an epoch's start set aside for a withdrawal, and queues
+    /// its unpaid shares again. Anyone may send it for the owner.
     pub fn claim_withdrawal(ctx: Context<ClaimWithdrawal>) -> Result<()> {
         instructions::claim_withdrawal::handle_claim_withdrawal(ctx)
     }

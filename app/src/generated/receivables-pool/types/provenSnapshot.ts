@@ -30,7 +30,7 @@ import {
 export type ProvenSnapshot = {
   /** The root the proof is against; it must be the signer's latest. */
   root: ReadonlyUint8Array;
-  /** The snapshot's bytes, in layout version 1 or later. */
+  /** The snapshot's bytes, in layout version 2 or later. */
   snapshot: ReadonlyUint8Array;
   /** The leaf's siblings from the bottom up. */
   proof: Array<ReadonlyUint8Array>;

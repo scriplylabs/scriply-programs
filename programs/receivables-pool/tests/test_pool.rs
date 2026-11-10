@@ -86,7 +86,7 @@ fn test_adr_example_end_to_end() {
     env.send(&[ix], &[&depositor]).unwrap();
     env.set_time(T0 + 13 * EPOCH);
     env.settle();
-    let ix = env.claim_withdrawal_ix(&depositor.pubkey(), Some(0));
+    let ix = env.claim_withdrawal_ix(&depositor.pubkey(), 0);
     env.send(&[ix], &[&depositor]).unwrap();
     let paid = env.usdc_balance(&depositor.pubkey());
     assert!(
@@ -134,6 +134,79 @@ fn test_repaying_returns_the_units_and_frees_the_token() {
     // The same loan account takes the borrower's next loan.
     borrow(&mut env, &org, 1_000 * UNIT, 100 * USDC, 4);
     assert!(env.loan_state(&org.pubkey()).is_open);
+}
+
+#[test]
+fn test_a_loan_whose_units_are_gone_is_written_off_once_impaired() {
+    let mut env = Env::new();
+    env.depositor(2_000 * USDC);
+    // Half its units are kept back, to borrow against again.
+    let org = borrower(&mut env, 2_000 * UNIT);
+    borrow(&mut env, &org, 1_000 * UNIT, 500 * USDC, 4);
+    let creator = env.creator.insecure_clone();
+
+    // The collateral agent's redemption burns the units, and anyone syncs
+    // before the agent pays: the loan still performs, so NAV keeps it.
+    env.set_time(T0 + 10 * DAY);
+    let before = env.pool_state().nav(env.now).unwrap();
+    env.buy_back(&org.pubkey(), 1_000 * UNIT, 0);
+    let ixs = [
+        env.settle_ix(&creator.pubkey()),
+        env.sync_loan_ix(&org.pubkey()),
+    ];
+    env.send(&ixs, &[&creator]).unwrap();
+    assert!(env.loan_state(&org.pubkey()).is_open);
+    assert_eq!(env.pool_state().nav(env.now).unwrap(), before);
+
+    // The agent recovers 300: the loan still owes, and still performs.
+    pay_proceeds(&mut env, &org.pubkey(), 300 * USDC);
+    assert!(env.loan_state(&org.pubkey()).is_open);
+    assert_eq!(env.pool_state().idle, 1_800 * USDC);
+
+    // Maturity is epoch 4 and grace 2 epochs: impaired, it is written off.
+    env.set_time(T0 + 6 * EPOCH);
+    env.settle();
+    let ix = env.sync_loan_ix(&org.pubkey());
+    env.send(&[ix], &[&creator]).unwrap();
+    let loan = env.loan_state(&org.pubkey());
+    assert!(!loan.is_open);
+    assert!(loan.written_off > 0);
+    assert_eq!(env.exposure_state().principal, 0);
+    let pool = env.pool_state();
+    assert_eq!(pool.nav(env.now).unwrap(), pool.idle);
+    assert_eq!(pool.idle, 1_800 * USDC);
+
+    // The borrower can't borrow on it again while its recovery is owed.
+    let proven = env.post_token();
+    let ixs = [
+        env.settle_ix(&org.pubkey()),
+        env.borrow_ix(&org.pubkey(), 1_000 * UNIT, USDC, 4, proven),
+    ];
+    env.send_expecting_error(&ixs, &[&org], "LoanWrittenOff");
+
+    // More recovered later goes to the pool, not the borrower.
+    pay_proceeds(&mut env, &org.pubkey(), 50 * USDC);
+    assert_eq!(env.pool_state().idle, 1_850 * USDC);
+    assert_eq!(env.usdc_balance(&org.pubkey()), 500 * USDC);
+}
+
+/// Pays `usdc` into the loan's proceeds account and syncs it, in one
+/// transaction, as the README asks of whoever pays it.
+fn pay_proceeds(env: &mut Env, borrower: &Pubkey, usdc: u64) {
+    let creator = env.creator.insecure_clone();
+    let funding = env.fund_usdc(&creator.pubkey(), usdc);
+    let proceeds = ata(&env.loan(borrower), &env.usdc, &spl_token::ID);
+    let ix = spl_token::instruction::transfer(
+        &spl_token::ID,
+        &funding,
+        &proceeds,
+        &creator.pubkey(),
+        &[],
+        usdc,
+    )
+    .unwrap();
+    env.send(&[ix, env.sync_loan_ix(borrower)], &[&creator])
+        .unwrap();
 }
 
 #[test]
@@ -307,10 +380,22 @@ fn test_borrowing_is_refused_without_good_facts() {
     let proven = env.post_with(s);
     attempt(&mut env, proven, 1_000 * UNIT, 100 * USDC, 4, "WrongMint");
 
-    // 61-90 days past due counts for nothing, but isn't late until 90.
+    // Overdue burn debt any day of the past year refuses the token too.
     let mut s = env.snapshot();
-    s.aging_current = 0;
-    s.aging_days_61_to_90 = s.outstanding_units;
+    s.days_burn_debt_overdue = 3;
+    let proven = env.post_with(s);
+    attempt(
+        &mut env,
+        proven,
+        1_000 * UNIT,
+        100 * USDC,
+        4,
+        "BurnDebtHistoryOverdue",
+    );
+
+    // Every unit disputed: nothing counts.
+    let mut s = env.snapshot();
+    s.disputed_share_bps = 10_000;
     let proven = env.post_with(s);
     attempt(
         &mut env,
@@ -331,6 +416,21 @@ fn test_borrowing_is_refused_without_good_facts() {
     // Due in 20 days and paid 10 days late: a 4-week term ends too soon.
     let mut s = env.snapshot();
     s.weighted_days_beyond_terms = 10;
+    let proven = env.post_with(s);
+    attempt(
+        &mut env,
+        proven,
+        1_000 * UNIT,
+        100 * USDC,
+        4,
+        "TermTooShort",
+    );
+
+    // Expected in 27 days: a 4-week term opened 6.9 days into the epoch
+    // matures in 21.1, too soon, though its four epochs are 28 days.
+    env.set_time(T0 + 6 * DAY + 9 * DAY / 10);
+    let mut s = env.snapshot();
+    s.weighted_days_to_due = 27;
     let proven = env.post_with(s);
     attempt(
         &mut env,
@@ -486,22 +586,31 @@ fn test_a_loan_nobody_can_mark_is_marked_stale_after_the_window() {
     let pool = env.pool_state();
     assert_eq!(pool.nav(env.now).unwrap(), full - (owed - owed / 5));
 
-    // The epoch settles without the token's facts, and deposits reopen.
+    // The epoch settles without the token's facts, and deposits reopen, at
+    // the NAV counting the loan as performing.
     env.settle();
-    let d = env.depositor(10 * USDC);
-    assert!(env.shares_of(&d.pubkey()) > 0);
+    let pool = env.pool_state();
+    assert!(pool.nav_before_stale_discount(env.now).unwrap() > pool.nav(env.now).unwrap());
+    let d = env.depositor(100 * USDC);
+    let shares = env.shares_of(&d.pubkey());
+    let ix = env.request_withdrawal_ix(&d.pubkey(), shares);
+    env.send(&[ix], &[&d]).unwrap();
 
-    // A fresh mark after the deposits doesn't lift NAV this epoch, so
-    // nobody can buy shares at the discount and then clear it.
+    // A fresh mark after the deposits doesn't lift NAV this epoch.
     let low = env.pool_state().nav(env.now).unwrap();
     let proven = env.post_token();
     let ix = env.mark_loans_ix(vec![proven], &[&org.pubkey()]);
     env.send(&[ix], &[&creator]).unwrap();
     assert_eq!(env.pool_state().nav(env.now).unwrap(), low);
 
-    // Read again next epoch, the discount goes.
+    // Read again next epoch, the discount goes, and the deposit made at
+    // the discount is paid what it put in and a week's interest at most.
     env.set_time(T0 + 2 * EPOCH);
     env.settle_and_mark(&[&org.pubkey()]);
+    let ix = env.claim_withdrawal_ix(&d.pubkey(), 0);
+    env.send(&[ix], &[&d]).unwrap();
+    let paid = env.usdc_balance(&d.pubkey());
+    assert!(paid <= 100 * USDC + USDC / 2, "paid {paid}");
     let pool = env.pool_state();
     assert_eq!(pool.stale_discount, 0);
     let owed = env.loan_state(&org.pubkey()).owed(env.now).unwrap();
@@ -520,15 +629,31 @@ fn test_withdrawals_wait_while_the_pool_is_lent_out() {
     let ix = env.request_withdrawal_ix(&depositor_b.pubkey(), shares);
     env.send(&[ix], &[&depositor_b]).unwrap();
 
-    // Only 400 is idle at the next epoch's start, so 400 is paid and the rest waits.
+    // Before the epoch's start nothing is settled to claim: its generation
+    // has no record yet.
+    let ix = env.claim_withdrawal_ix(&depositor_b.pubkey(), 0);
+    env.send_expecting_error(&[ix], &[&depositor_b], "AccountNotInitialized");
+
+    // Only 400 is idle at the next epoch's start, so 400 is paid. A keeper
+    // claims it for the depositor, which queues the unpaid shares again.
     env.set_time(T0 + EPOCH);
     env.settle_and_mark(&[&org_b.pubkey()]);
     let pool = env.pool_state();
     assert_eq!((pool.idle, pool.reserved), (0, 400 * USDC));
-    assert_eq!(pool.withdrawal_generation, 0);
-    let ix = env.claim_withdrawal_ix(&depositor_b.pubkey(), None);
-    env.send(&[ix], &[&depositor_b]).unwrap();
+    assert_eq!((pool.withdrawal_generation, pool.pending_shares), (1, 0));
+    let keeper = env.wallet();
+    // The USDC goes only to the depositor's associated account: a keeper
+    // can't send it to another account the depositor owns.
+    let side = env.side_usdc_account(&depositor_b.pubkey());
+    let mut ix = env.claim_withdrawal_ix(&depositor_b.pubkey(), 0);
+    ix.accounts[5].pubkey = side;
+    env.send_expecting_error(&[ix], &[&keeper], "ConstraintAssociated");
+    let ix = env.claim_withdrawal_ix(&depositor_b.pubkey(), 0);
+    env.send(&[ix], &[&keeper]).unwrap();
     assert_eq!(env.usdc_balance(&depositor_b.pubkey()), 400 * USDC);
+    let request = env.request_state(&depositor_b.pubkey());
+    assert_eq!(request.generation, 1);
+    assert_eq!(env.pool_state().pending_shares, request.shares);
 
     // Once the loan is repaid, the next epoch's start pays the rest.
     env.fund_usdc(&org_b.pubkey(), 10 * USDC);
@@ -536,15 +661,77 @@ fn test_withdrawals_wait_while_the_pool_is_lent_out() {
     env.send(&ixs, &[&org_b]).unwrap();
     env.set_time(T0 + 2 * EPOCH);
     env.settle();
-    assert_eq!(env.pool_state().withdrawal_generation, 1);
-    let ix = env.claim_withdrawal_ix(&depositor_b.pubkey(), Some(0));
+    assert_eq!(env.pool_state().withdrawal_generation, 2);
+    let ix = env.claim_withdrawal_ix(&depositor_b.pubkey(), 1);
     env.send(&[ix], &[&depositor_b]).unwrap();
+    assert!(env
+        .svm
+        .get_account(&env.request(&depositor_b.pubkey()))
+        .is_none_or(|a| a.lamports == 0));
     // 1000 back, plus a week's interest on 600 at 12% (1.380821), less rounding.
     let paid = env.usdc_balance(&depositor_b.pubkey());
     assert!(
         (1_001_380_819..=1_001_380_821).contains(&paid),
         "paid {paid}"
     );
+}
+
+#[test]
+fn test_withdrawals_paid_nearly_in_full_twice_lose_nothing() {
+    // The review's case: settlements just short of the queue, twice, used
+    // to wear the queue's index down until a later request claimed 0.
+    let mut env = Env::with_params(|p| p.cap_per_token_bps = 10_000);
+    let a = env.depositor(1_000 * USDC);
+    let org = borrower(&mut env, 1_000 * UNIT);
+    borrow(&mut env, &org, 1_000 * UNIT, 600 * USDC, 4);
+    let keeper = env.wallet();
+
+    // A asks for a little more than the 400 idle.
+    let shares = env.shares_of(&a.pubkey()) * 401 / 1_000;
+    let ix = env.request_withdrawal_ix(&a.pubkey(), shares);
+    env.send(&[ix], &[&a]).unwrap();
+    env.set_time(T0 + EPOCH);
+    env.settle_and_mark(&[&org.pubkey()]);
+    let ix = env.claim_withdrawal_ix(&a.pubkey(), 0);
+    env.send(&[ix], &[&keeper]).unwrap();
+    assert_eq!(env.usdc_balance(&a.pubkey()), 400 * USDC);
+
+    // Half a dollar comes back: short again.
+    env.fund_usdc(&org.pubkey(), USDC / 2);
+    let ixs = [env.repay_ix(&org.pubkey(), &org.pubkey(), USDC / 2)];
+    env.send(&ixs, &[&org]).unwrap();
+    env.set_time(T0 + 2 * EPOCH);
+    env.settle_and_mark(&[&org.pubkey()]);
+    let ix = env.claim_withdrawal_ix(&a.pubkey(), 1);
+    env.send(&[ix], &[&keeper]).unwrap();
+    assert_eq!(env.usdc_balance(&a.pubkey()), 400 * USDC + USDC / 2);
+    assert!(env.request_state(&a.pubkey()).shares > 0);
+
+    // C deposits 300 and asks for all of it; the loan is repaid, so the next
+    // start pays everyone in full.
+    let c = env.depositor(300 * USDC);
+    let ix = env.request_withdrawal_ix(&c.pubkey(), env.shares_of(&c.pubkey()));
+    env.send(&[ix], &[&c]).unwrap();
+    env.fund_usdc(&org.pubkey(), 10 * USDC);
+    let ixs = [env.repay_ix(&org.pubkey(), &org.pubkey(), u64::MAX)];
+    env.send(&ixs, &[&org]).unwrap();
+    env.set_time(T0 + 3 * EPOCH);
+    env.settle();
+    for owner in [&a, &c] {
+        let ix = env.claim_withdrawal_ix(&owner.pubkey(), 2);
+        env.send(&[ix], &[&keeper]).unwrap();
+    }
+    let paid_c = env.usdc_balance(&c.pubkey());
+    assert!(
+        (299 * USDC..=300 * USDC).contains(&paid_c),
+        "C paid {paid_c}"
+    );
+    let paid_a = env.usdc_balance(&a.pubkey());
+    assert!(
+        (401 * USDC..402 * USDC).contains(&paid_a),
+        "A paid {paid_a}"
+    );
+    assert!(env.pool_state().reserved < 10, "dust only");
 }
 
 #[test]

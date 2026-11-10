@@ -29,16 +29,16 @@ impl MaturityBucket {
     }
 }
 
-/// What an epoch's start paid the withdrawal queue.
+/// What an epoch's start paid the withdrawal queue: one generation, ended.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WithdrawalSettlement {
+    pub generation: u64,
+    /// Shares the generation's requests asked to withdraw.
+    pub shares: u64,
+    /// Of those, the shares paid for, to burn from escrow.
+    pub shares_burned: u64,
     /// USDC set aside for the requests to claim.
     pub paid: u64,
-    /// Shares to burn from escrow.
-    pub shares_burned: u64,
-    /// The generation that ended, with what it paid per normalized share,
-    /// when every pending request was paid in full.
-    pub ended_generation: Option<(u64, u128)>,
 }
 
 impl Pool {
@@ -146,6 +146,16 @@ impl Pool {
     /// less the discount on loans marked stale. USDC set aside for
     /// withdrawals is not the pool's any more.
     pub fn nav(&self, now: i64) -> Result<u64> {
+        let full = self.nav_before_stale_discount(now)?;
+        Ok(full.saturating_sub(self.stale_discount))
+    }
+
+    /// NAV counting loans marked stale this epoch as performing: what
+    /// deposits are priced at. Withdrawals take the discount and deposits
+    /// don't, so nobody gains from a loan nobody could read: a deposit
+    /// bought at the discount would be paid the full NAV once the loan is
+    /// read again next epoch, out of the depositors already in.
+    pub fn nav_before_stale_discount(&self, now: i64) -> Result<u64> {
         let mut total = add(self.idle as u128, self.impaired_value as u128)?;
         for bucket in self.buckets.iter() {
             let accrual = bucket.accrual();
@@ -155,7 +165,7 @@ impl Pool {
             let maturity = self.epoch_start(bucket.maturity_epoch);
             total = add(total, accrual.owed_at(now, maturity)?)?;
         }
-        to_u64(total.saturating_sub(self.stale_discount as u128))
+        to_u64(total)
     }
 
     pub fn add_accrual(&mut self, maturity_epoch: u64, a: &Accrual) -> Result<()> {
@@ -203,9 +213,10 @@ impl Pool {
         Ok(())
     }
 
-    /// The shares `amount` of USDC buys at `now`, given the share supply.
+    /// The shares `amount` of USDC buys at `now`, given the share supply,
+    /// at the NAV before any stale discount.
     pub fn shares_for_deposit(&self, amount: u64, share_supply: u64, now: i64) -> Result<u64> {
-        let nav = self.nav(now)?;
+        let nav = self.nav_before_stale_discount(now)?;
         to_u64(mul_div(
             amount as u128,
             share_supply as u128 + VIRTUAL_SHARES as u128,
@@ -213,26 +224,29 @@ impl Pool {
         )?)
     }
 
-    /// Adds `shares` to the withdrawal queue and returns the request's
-    /// normalized shares.
-    pub fn queue_withdrawal(&mut self, shares: u64) -> Result<u128> {
-        let norm = mul_div(shares as u128, INDEX_SCALE, self.remaining_factor.get())?;
-        self.pending_norm.set(add(self.pending_norm.get(), norm)?);
+    /// Adds `shares` to the current generation of the withdrawal queue.
+    pub fn queue_withdrawal(&mut self, shares: u64) -> Result<()> {
         self.pending_shares = to_u64(add(self.pending_shares as u128, shares as u128)?)?;
-        Ok(norm)
+        Ok(())
     }
 
     /// Pays the withdrawal queue at the NAV per share at `now`, from idle
-    /// USDC. `now` is no earlier than any loan's last payment. If idle USDC can't pay every request, each is paid the same
-    /// share of what it asked and the rest waits for the next epoch.
+    /// USDC, and ends its generation; `None` when nothing was asked. `now`
+    /// is no earlier than any loan's last payment. If idle USDC can't pay
+    /// every request, each is paid the same share of what it asked, and
+    /// claiming it puts the rest in the next generation.
+    ///
+    /// Every settlement ends the generation, so what a request is owed is
+    /// always its shares times what one generation paid: nothing compounds
+    /// across partial payments and loses precision.
     pub fn settle_withdrawals(
         &mut self,
         share_supply: u64,
         now: i64,
-    ) -> Result<WithdrawalSettlement> {
+    ) -> Result<Option<WithdrawalSettlement>> {
         let pending = self.pending_shares;
         if pending == 0 {
-            return Ok(WithdrawalSettlement::default());
+            return Ok(None);
         }
         let nav = self.nav(now)?;
         let needed = to_u64(mul_div(
@@ -247,38 +261,18 @@ impl Pool {
         } else {
             to_u64(mul_div(pending as u128, paid as u128, needed as u128)?)?
         };
-        let paid_per_norm = add(
-            self.paid_per_norm.get(),
-            mul_div(paid as u128, INDEX_SCALE, self.pending_norm.get())?,
-        )?;
 
         self.idle -= paid;
         self.reserved = to_u64(add(self.reserved as u128, paid as u128)?)?;
-        self.pending_shares -= shares_burned;
-
-        let ended_generation = if is_full {
-            let ended = (self.withdrawal_generation, paid_per_norm);
-            self.withdrawal_generation += 1;
-            self.remaining_factor.set(INDEX_SCALE);
-            self.paid_per_norm.set(0);
-            self.pending_norm.set(0);
-            Some(ended)
-        } else {
-            self.paid_per_norm.set(paid_per_norm);
-            // Never 0: later requests divide by it.
-            let remaining = mul_div(
-                self.remaining_factor.get(),
-                (pending - shares_burned) as u128,
-                pending as u128,
-            )?;
-            self.remaining_factor.set(remaining.max(1));
-            None
-        };
-        Ok(WithdrawalSettlement {
-            paid,
+        self.pending_shares = 0;
+        let generation = self.withdrawal_generation;
+        self.withdrawal_generation += 1;
+        Ok(Some(WithdrawalSettlement {
+            generation,
+            shares: pending,
             shares_burned,
-            ended_generation,
-        })
+            paid,
+        }))
     }
 }
 
@@ -295,7 +289,6 @@ mod tests {
         p.epoch_origin = T0;
         p.epoch_seconds = EPOCH;
         p.grace_epochs = 2;
-        p.remaining_factor.set(INDEX_SCALE);
         p
     }
 
@@ -344,15 +337,22 @@ mod tests {
     fn test_withdrawals_are_paid_in_full_when_idle_covers_them() {
         let mut p = pool();
         p.idle = 1_000_000;
-        let norm = p.queue_withdrawal(400_000_000).unwrap();
-        let s = p.settle_withdrawals(1_000_000_000, T0).unwrap();
-        assert_eq!(s.shares_burned, 400_000_000);
-        assert_eq!(s.paid, 400_000);
-        let (generation, paid_per_norm) = s.ended_generation.unwrap();
-        assert_eq!(generation, 0);
-        assert_eq!(norm * paid_per_norm / INDEX_SCALE, 400_000);
+        p.queue_withdrawal(400_000_000).unwrap();
+        let s = p.settle_withdrawals(1_000_000_000, T0).unwrap().unwrap();
+        assert_eq!(
+            s,
+            WithdrawalSettlement {
+                generation: 0,
+                shares: 400_000_000,
+                shares_burned: 400_000_000,
+                paid: 400_000,
+            }
+        );
         assert_eq!(p.withdrawal_generation, 1);
-        assert_eq!((p.idle, p.reserved), (600_000, 400_000));
+        assert_eq!(
+            (p.idle, p.reserved, p.pending_shares),
+            (600_000, 400_000, 0)
+        );
     }
 
     #[test]
@@ -362,16 +362,23 @@ mod tests {
         // NAV is 1 USDC across 1000 shares, but only 0.1 USDC is idle.
         let m = p.epoch_start(4);
         p.add_accrual(4, &loan(900_000, m)).unwrap();
-        let a = p.queue_withdrawal(300_000_000).unwrap();
-        let b = p.queue_withdrawal(100_000_000).unwrap();
-        let s = p.settle_withdrawals(1_000_000_000, T0).unwrap();
-        assert_eq!(s.paid, 100_000);
-        assert!(s.ended_generation.is_none());
-        assert_eq!(s.shares_burned, 100_000_000);
-        let c = p.paid_per_norm.get();
-        assert_eq!(a * c / INDEX_SCALE, 75_000);
-        assert_eq!(b * c / INDEX_SCALE, 25_000);
-        // Three quarters of each request still waits.
-        assert_eq!(a * p.remaining_factor.get() / INDEX_SCALE, 225_000_000);
+        p.queue_withdrawal(300_000_000).unwrap();
+        p.queue_withdrawal(100_000_000).unwrap();
+        let s = p.settle_withdrawals(1_000_000_000, T0).unwrap().unwrap();
+        assert_eq!(
+            (s.shares, s.shares_burned, s.paid),
+            (400_000_000, 100_000_000, 100_000)
+        );
+        // The generation ends anyway: the unpaid three quarters are queued
+        // again when each request claims.
+        assert_eq!((p.withdrawal_generation, p.pending_shares), (1, 0));
+    }
+
+    #[test]
+    fn test_nothing_asked_ends_no_generation() {
+        let mut p = pool();
+        p.idle = 100_000;
+        assert_eq!(p.settle_withdrawals(1_000_000_000, T0).unwrap(), None);
+        assert_eq!(p.withdrawal_generation, 0);
     }
 }
