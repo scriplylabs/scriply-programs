@@ -220,19 +220,19 @@ async function buildMarkLoans(payer: TransactionSigner, p: PoolAt, proof: TokenP
 }
 
 /**
- * Marks a token's loans in as few transactions as hold them. Each carries the
- * token's proof again, so a longer proof leaves room for fewer loans.
+ * Marks a token's loans in as few v0 transactions as hold them, which every
+ * wallet signs. Each carries the token's proof again, so a longer proof leaves
+ * room for fewer loans.
  */
 export async function buildMarkLoanBatches(payer: TransactionSigner, p: PoolAt, proof: TokenProof, loans: Address[]): Promise<Instruction[][]> {
   const batches: Instruction[][] = [];
   let start = 0;
   while (start < loans.length) {
     let end = start + 1;
+    // A proof too long for even one loan in a v0 transaction goes one loan at a
+    // time, which `sendInstructions` sends as v1.
     let batch = await buildMarkLoans(payer, p, proof, loans.slice(start, end));
-    if (!isWithinOneTransaction(payer, batch)) {
-      throw new Error("This token's proof is too long to mark even one loan in a transaction.");
-    }
-    while (end < loans.length) {
+    while (end < loans.length && isWithinOneTransaction(payer, batch)) {
       const next = await buildMarkLoans(payer, p, proof, loans.slice(start, end + 1));
       if (!isWithinOneTransaction(payer, next)) {
         break;

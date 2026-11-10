@@ -3,8 +3,10 @@
 
 import { useWalletAccountTransactionSendingSigner } from '@solana/react';
 import type { TransactionSendingSigner } from '@solana/kit';
-import { useConnect, useDisconnect, useWallets, type UiWallet, type UiWalletAccount } from '@wallet-standard/react';
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { getWalletAccountFeature, useConnect, useDisconnect, useWallets, type UiWallet, type UiWalletAccount } from '@wallet-standard/react';
+import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+
+import type { AppSigner } from './chain';
 
 import { config } from './config';
 import { shortenAddress } from './format';
@@ -109,8 +111,20 @@ export function WalletButton() {
   );
 }
 
+/** Whether the account's wallet says it signs v1 transactions (up to 4096 bytes). */
+function isV1SupportedBy(account: UiWalletAccount): boolean {
+  try {
+    const feature = getWalletAccountFeature(account, 'solana:signAndSendTransaction') as { supportedTransactionVersions?: readonly (string | number)[] };
+    return feature.supportedTransactionVersions?.includes(1) ?? false;
+  } catch {
+    return false;
+  }
+}
+
 function SignerFor({ account, children }: { account: UiWalletAccount; children: (signer: TransactionSendingSigner) => ReactNode }) {
-  const signer = useWalletAccountTransactionSendingSigner(account, config.chain);
+  const walletSigner = useWalletAccountTransactionSendingSigner(account, config.chain);
+  const isV1Supported = isV1SupportedBy(account);
+  const signer = useMemo<AppSigner>(() => ({ ...walletSigner, isV1Supported }), [walletSigner, isV1Supported]);
   return <>{children(signer)}</>;
 }
 

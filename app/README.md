@@ -28,7 +28,7 @@ The app reads a token's proof under the newest root any of the pool's signers po
 
 ## Limits
 
-A transaction is at most 1232 bytes, and a proof adds a 32-byte hash each time the tokens in the signer's tree double. Marking splits a token's loans over as many transactions as they need. A borrow is one transaction, which holds a proof of at most 5 hashes: a tree of at most 32 tokens.
+A proof adds a 32-byte hash each time the tokens in the signer's tree double. The app sends a v0 transaction (at most 1232 bytes) when one holds it, and a v1 transaction (at most 4096 bytes) when it doesn't, if the wallet says it signs v1. A borrow fits in v0 while the tree holds at most 32 tokens (5 hashes), and in v1 far past any real tree (20 hashes, about a million tokens, is 1701 bytes). Marking splits a token's loans over as many v0 transactions as they need, so it needs v1 only when one loan with its proof is too big for v0. A v1 transaction carries its own compute and account-data budgets, which the app sets from the simulation it already runs.
 
 ## Development
 

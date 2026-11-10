@@ -13,7 +13,9 @@ import {
   getBase64EncodedWireTransaction,
   getBase64Encoder,
   getProgramDerivedAddress,
+  getTransactionMessageSize,
   isTransactionMessageWithinSizeLimit,
+  setTransactionMessageConfig,
   getAddressEncoder,
   getU64Encoder,
   pipe,
@@ -28,6 +30,7 @@ import {
   type Signature,
   type TransactionSendingSigner,
   type TransactionSigner,
+  type V1TransactionConfig,
 } from '@solana/kit';
 import { AccountState, findAssociatedTokenPda, getMintDecoder, getTokenDecoder } from '@solana-program/token';
 
@@ -241,36 +244,61 @@ function describeFailure(err: unknown, logs: readonly string[]): string {
   return logged ? logged.split('Error Message:')[1].trim() : `The transaction failed: ${JSON.stringify(err, (_, v) => (typeof v === 'bigint' ? Number(v) : v))}`;
 }
 
-/** A blockhash that only sizes a transaction: every blockhash is 32 bytes. */
-const SIZING_LIFETIME = { blockhash: '11111111111111111111111111111111' as Blockhash, lastValidBlockHeight: 0n };
+type Lifetime = { blockhash: Blockhash; lastValidBlockHeight: bigint };
 
-/** Whether `instructions`, paid by `feePayer`, fit in one transaction. */
-export function isWithinOneTransaction(feePayer: TransactionSigner, instructions: Instruction[]): boolean {
-  return isTransactionMessageWithinSizeLimit(
-    pipe(
-      createTransactionMessage({ version: 0 }),
-      (m) => setTransactionMessageFeePayerSigner(feePayer, m),
-      (m) => setTransactionMessageLifetimeUsingBlockhash(SIZING_LIFETIME, m),
-      (m) => appendTransactionMessageInstructions(instructions, m),
-    ),
+/** A blockhash that only sizes a transaction: every blockhash is 32 bytes. */
+const SIZING_LIFETIME: Lifetime = { blockhash: '11111111111111111111111111111111' as Blockhash, lastValidBlockHeight: 0n };
+
+/** The most a v1 transaction may budget, which it is simulated with. */
+const V1_MAX_COMPUTE_UNITS = 1_400_000;
+const V1_MAX_LOADED_ACCOUNTS_DATA = 64 * 1024 * 1024;
+
+/**
+ * The connected wallet's signer, which also says whether the wallet signs
+ * v1 transactions (`wallet.tsx`). A signer without it is sent only v0.
+ */
+export type AppSigner = TransactionSendingSigner & { isV1Supported?: boolean };
+
+function buildV0Message(feePayer: TransactionSigner, lifetime: Lifetime, instructions: Instruction[]) {
+  return pipe(
+    createTransactionMessage({ version: 0 }),
+    (m) => setTransactionMessageFeePayerSigner(feePayer, m),
+    (m) => setTransactionMessageLifetimeUsingBlockhash(lifetime, m),
+    (m) => appendTransactionMessageInstructions(instructions, m),
+  );
+}
+
+/** A v1 message: up to 4096 bytes, its compute and account-data budgets in the message itself. */
+function buildV1Message(feePayer: TransactionSigner, lifetime: Lifetime, instructions: Instruction[], limits: V1TransactionConfig) {
+  return pipe(
+    createTransactionMessage({ version: 1 }),
+    (m) => setTransactionMessageFeePayerSigner(feePayer, m),
+    (m) => setTransactionMessageLifetimeUsingBlockhash(lifetime, m),
+    (m) => appendTransactionMessageInstructions(instructions, m),
+    (m) => setTransactionMessageConfig(limits, m),
   );
 }
 
 /**
- * Simulates `instructions` as one transaction paid by `signer`, then asks
- * the wallet to sign and send it, and waits until it is confirmed. A
- * simulation that fails is a TransactionError with the program's reason,
- * and nothing is signed.
+ * A v1 transaction's budgets from what its simulation used, with room for
+ * state that moves before it lands. A v1 transaction left unbudgeted gets
+ * zero, not a default, so a figure the RPC doesn't report stays at the most.
  */
-export async function sendInstructions(signer: TransactionSendingSigner, instructions: Instruction[]): Promise<Signature> {
-  const { value: blockhash } = await rpc.getLatestBlockhash().send();
-  const message = pipe(
-    createTransactionMessage({ version: 0 }),
-    (m) => setTransactionMessageFeePayerSigner(signer, m),
-    (m) => setTransactionMessageLifetimeUsingBlockhash(blockhash, m),
-    (m) => appendTransactionMessageInstructions(instructions, m),
-  );
+function fitV1Limits(used: { unitsConsumed?: bigint; loadedAccountsDataSize?: number }): V1TransactionConfig {
+  return {
+    computeUnitLimit: used.unitsConsumed === undefined ? V1_MAX_COMPUTE_UNITS : Math.min(Math.ceil(Number(used.unitsConsumed) * 1.2) + 5_000, V1_MAX_COMPUTE_UNITS),
+    loadedAccountsDataSizeLimit:
+      used.loadedAccountsDataSize === undefined ? V1_MAX_LOADED_ACCOUNTS_DATA : Math.min(Math.ceil(used.loadedAccountsDataSize * 1.1) + 32 * 1024, V1_MAX_LOADED_ACCOUNTS_DATA),
+  };
+}
 
+/** Whether `instructions`, paid by `feePayer`, fit in one v0 transaction, which every wallet signs. */
+export function isWithinOneTransaction(feePayer: TransactionSigner, instructions: Instruction[]): boolean {
+  return isTransactionMessageWithinSizeLimit(buildV0Message(feePayer, SIZING_LIFETIME, instructions));
+}
+
+/** Simulates a message unsigned; a failure is a TransactionError with the program's reason. */
+async function simulate(message: Parameters<typeof compileTransaction>[0]) {
   const unsigned = getBase64EncodedWireTransaction(compileTransaction(message));
   const { value: simulation } = await rpc
     .simulateTransaction(unsigned, { encoding: 'base64', sigVerify: false, replaceRecentBlockhash: true })
@@ -278,6 +306,35 @@ export async function sendInstructions(signer: TransactionSendingSigner, instruc
   if (simulation.err) {
     const logs = simulation.logs ?? [];
     throw new TransactionError(describeFailure(simulation.err, logs), logs);
+  }
+  return simulation;
+}
+
+/**
+ * Simulates `instructions` as one transaction paid by `signer`, then asks
+ * the wallet to sign and send it, and waits until it is confirmed. A
+ * simulation that fails is a TransactionError with the program's reason,
+ * and nothing is signed. The transaction is v0 when it fits in 1232 bytes,
+ * and v1 (4096 bytes) when it doesn't and the wallet signs v1.
+ */
+export async function sendInstructions(signer: AppSigner, instructions: Instruction[]): Promise<Signature> {
+  const { value: lifetime } = await rpc.getLatestBlockhash().send();
+  const v0 = buildV0Message(signer, lifetime, instructions);
+  let message: ReturnType<typeof buildV0Message> | ReturnType<typeof buildV1Message>;
+  if (isTransactionMessageWithinSizeLimit(v0)) {
+    await simulate(v0);
+    message = v0;
+  } else {
+    if (!signer.isV1Supported) {
+      throw new TransactionError(
+        `This transaction is ${getTransactionMessageSize(v0)} bytes, more than the 1232 a v0 transaction holds, and your wallet doesn't sign the larger v1 transactions. Connect a wallet that does.`,
+      );
+    }
+    const probe = buildV1Message(signer, lifetime, instructions, { computeUnitLimit: V1_MAX_COMPUTE_UNITS, loadedAccountsDataSizeLimit: V1_MAX_LOADED_ACCOUNTS_DATA });
+    if (!isTransactionMessageWithinSizeLimit(probe)) {
+      throw new TransactionError(`This transaction is ${getTransactionMessageSize(probe)} bytes, more than the 4096 even a v1 transaction holds.`);
+    }
+    message = buildV1Message(signer, lifetime, instructions, fitV1Limits(await simulate(probe)));
   }
 
   const signature = getBase58Decoder().decode(await signAndSendTransactionMessageWithSigners(message)) as Signature;
