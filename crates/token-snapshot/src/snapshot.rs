@@ -54,9 +54,10 @@ pub struct Snapshot {
     /// Share of units owed by customers with a payment history the three
     /// fields above are drawn from, bps.
     pub history_share_bps: u16,
-    /// Days a unit owed for burning stayed owed before the org delivered it,
-    /// averaged by units, over the 365 days before `as_of`; debt still owed
-    /// counts up to `as_of`. Version 2.
+    /// Over the 365 days before `as_of`, the unit-days of burn debt owed
+    /// (debt still owed counts up to `as_of`) over the units owed in that
+    /// window (owed at its start or recorded during it), to the nearest day:
+    /// how long a unit owed stayed owed, not how many were. Version 2.
     pub weighted_days_in_burn_debt: u16,
     /// Days in the 365 before `as_of` the token's burn debt was overdue:
     /// owed past its grace. Version 2.

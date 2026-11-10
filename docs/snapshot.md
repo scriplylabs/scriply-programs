@@ -31,7 +31,7 @@ Fixed-width fields, little-endian, no padding. Amounts are in the token's base u
 | 162 | 2 | `weightedDaysBeyondTerms` | Days those customers paid after the due date, 0 when on time, on the same weighting |
 | 164 | 2 | `paidOnTimeShare` | Share of those customers' paid invoice volume that reached the bank by its due date, bps |
 | 166 | 2 | `historyShare` | Share of units owed by customers with a payment history, which the three fields above are drawn from, bps |
-| 168 | 2 | `weightedDaysInBurnDebt` | Days a unit owed for burning stayed owed before the org delivered it, averaged by units, over the 365 days before `asOf`: the burn debt owed each day of the window summed, over the units owed at its start or recorded during it. Debt still owed counts up to `asOf`. Version 2 |
+| 168 | 2 | `weightedDaysInBurnDebt` | Over the 365 days before `asOf`, the unit-days of burn debt owed (debt still owed counts up to `asOf`) over the units owed in that window (owed at its start or recorded during it), to the nearest day. It says how long a unit owed stayed owed, not how many were: one unit owed all year gives 365, as a thousand do. Version 2 |
 | 170 | 2 | `daysBurnDebtOverdue` | Days in the 365 before `asOf` that the token's burn debt was overdue (owed past its deadline), rounded up, so any time overdue counts. Version 2 |
 
 Version 2 is 172 bytes; version 1 was its first 168, without the burn-debt history. `snapshot::tests::test_layout_offsets_are_pinned` pins these offsets.
