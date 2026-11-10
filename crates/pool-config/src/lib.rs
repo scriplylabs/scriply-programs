@@ -229,7 +229,7 @@ mod tests {
         assert_eq!(p.network, "sol-devnet");
         assert_eq!(p.maturities, vec![4, 13]);
         assert_eq!(p.risk.max_advance_bps, 9_000);
-        assert_eq!(p.risk.late_after_days, 90);
+        assert_eq!(p.risk.late_after_days, 30);
         assert_eq!(p.risk.no_history_spread_bps, 200);
         assert_eq!(p.rate_mode, RateMode::Fixed);
         assert!(p.depositor_attestation.is_none());
