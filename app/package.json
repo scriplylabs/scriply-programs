@@ -1,0 +1,39 @@
+{
+  "name": "receivables-pool-app",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A static web app for the receivables pool: lists every pool on chain, and lets anyone deposit, borrow, repay and keep",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc -b",
+    "generate": "node scripts/generate-client.mjs"
+  },
+  "dependencies": {
+    "@solana-program/system": "0.16.0",
+    "@solana-program/token": "0.18.0",
+    "@solana/kit": "8.5.0",
+    "@solana/program-client-core": "8.5.0",
+    "@solana/react": "8.5.0",
+    "@wallet-standard/react": "1.0.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@codama/nodes-from-anchor": "1.5.6",
+    "@codama/renderers-js": "2.8.0",
+    "@types/node": "22.20.5",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@vitejs/plugin-react": "4.7.0",
+    "codama": "1.11.0",
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "vitest": "4.1.12"
+  },
+  "packageManager": "npm@11.6.2"
+}

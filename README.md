@@ -69,9 +69,13 @@ cargo run -p create-pool -- --config pools/devnet.toml --url <rpc url> \
 
 Reads the config (`crates/pool-config`), prints the parameters and the pool's addresses, and without `--dry-run` sends `create_pool`. The URL has no default, so a pool is never created on a cluster nobody named. `pools/devnet.toml` trusts a key nobody holds until Scriply's devnet signer replaces it.
 
+## app
+
+A static web app for the pools (`app/`): it lists every pool from the chain, and lets anyone deposit and withdraw, borrow against a receivables token they hold (creating and thawing the loan's vault first), repay, and keep a pool's epochs moving. `app/README.md` has its settings and how to build it.
+
 ## Development
 
-Needs Rust, the Solana CLI (Agave) and Anchor 1.2.2 (through `avm`).
+Needs Rust, the Solana CLI (Agave 4.2.2) and Anchor 1.2.2 (through `avm`); `anchor build` switches Agave to the version in `Anchor.toml`.
 
 ```bash
 anchor build        # the program and its IDL, in target/deploy and target/idl
