@@ -75,7 +75,7 @@ A static web app for the pools (`app/`): it lists every pool from the chain, and
 
 ## Development
 
-Needs Rust, the Solana CLI (Agave) and Anchor 1.2.2 (through `avm`).
+Needs Rust, the Solana CLI (Agave 4.2.2) and Anchor 1.2.2 (through `avm`); `anchor build` switches Agave to the version in `Anchor.toml`.
 
 ```bash
 anchor build        # the program and its IDL, in target/deploy and target/idl

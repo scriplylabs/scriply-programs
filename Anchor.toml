@@ -3,6 +3,8 @@ skip_local_validator = true
 
 [toolchain]
 anchor_version = "1.2.2"
+# v1 transactions (4096 bytes), which the app sends for long proofs, need Agave 4.2.
+solana_version = "4.2.2"
 
 [features]
 resolution = true
