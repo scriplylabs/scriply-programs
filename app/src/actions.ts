@@ -13,7 +13,7 @@ import {
 } from '@solana/kit';
 import { getCreateAssociatedTokenIdempotentInstructionAsync, TOKEN_PROGRAM_ADDRESS } from '@solana-program/token';
 
-import { findGenerationRecord, findTokenAccount, TOKEN_2022_PROGRAM_ADDRESS, type TokenProof } from './chain';
+import { findGenerationRecord, findTokenAccount, isWithinOneTransaction, TOKEN_2022_PROGRAM_ADDRESS, type TokenProof } from './chain';
 import {
   findLoanPda,
   findPoolAuthorityPda,
@@ -210,13 +210,40 @@ function withWritableAccounts(instruction: Instruction, accounts: Address[]): In
 }
 
 /** Marks `loans`, all against the token `proof` proves, from the pool's latest root. */
-export async function buildMarkLoans(payer: TransactionSigner, p: PoolAt, proof: TokenProof, loans: Address[]): Promise<Instruction[]> {
+async function buildMarkLoans(payer: TransactionSigner, p: PoolAt, proof: TokenProof, loans: Address[]): Promise<Instruction[]> {
   const mark = getMarkLoansInstruction({
     pool: p.address,
     roots: proof.latest.rootsAccount,
     snapshots: [{ root: proof.proven.root, snapshot: proof.proven.snapshotBytes, proof: proof.proven.proof }],
   });
   return [await buildSettleEpoch(payer, p), withWritableAccounts(mark, loans)];
+}
+
+/**
+ * Marks a token's loans in as few transactions as hold them. Each carries the
+ * token's proof again, so a longer proof leaves room for fewer loans.
+ */
+export async function buildMarkLoanBatches(payer: TransactionSigner, p: PoolAt, proof: TokenProof, loans: Address[]): Promise<Instruction[][]> {
+  const batches: Instruction[][] = [];
+  let start = 0;
+  while (start < loans.length) {
+    let end = start + 1;
+    let batch = await buildMarkLoans(payer, p, proof, loans.slice(start, end));
+    if (!isWithinOneTransaction(payer, batch)) {
+      throw new Error("This token's proof is too long to mark even one loan in a transaction.");
+    }
+    while (end < loans.length) {
+      const next = await buildMarkLoans(payer, p, proof, loans.slice(start, end + 1));
+      if (!isWithinOneTransaction(payer, next)) {
+        break;
+      }
+      batch = next;
+      end++;
+    }
+    batches.push(batch);
+    start = end;
+  }
+  return batches;
 }
 
 /** Marks stale the loans nobody marked, once the marking window has closed. */

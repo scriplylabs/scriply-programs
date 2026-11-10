@@ -13,6 +13,7 @@ import {
   getBase64EncodedWireTransaction,
   getBase64Encoder,
   getProgramDerivedAddress,
+  isTransactionMessageWithinSizeLimit,
   getAddressEncoder,
   getU64Encoder,
   pipe,
@@ -21,10 +22,12 @@ import {
   signAndSendTransactionMessageWithSigners,
   type Address,
   type Base58EncodedBytes,
+  type Blockhash,
   type ReadonlyUint8Array,
   type Instruction,
   type Signature,
   type TransactionSendingSigner,
+  type TransactionSigner,
 } from '@solana/kit';
 import { AccountState, findAssociatedTokenPda, getMintDecoder, getTokenDecoder } from '@solana-program/token';
 
@@ -236,6 +239,21 @@ function describeFailure(err: unknown, logs: readonly string[]): string {
   }
   const logged = logs.find((l) => l.includes('Error Message:'));
   return logged ? logged.split('Error Message:')[1].trim() : `The transaction failed: ${JSON.stringify(err, (_, v) => (typeof v === 'bigint' ? Number(v) : v))}`;
+}
+
+/** A blockhash that only sizes a transaction: every blockhash is 32 bytes. */
+const SIZING_LIFETIME = { blockhash: '11111111111111111111111111111111' as Blockhash, lastValidBlockHeight: 0n };
+
+/** Whether `instructions`, paid by `feePayer`, fit in one transaction. */
+export function isWithinOneTransaction(feePayer: TransactionSigner, instructions: Instruction[]): boolean {
+  return isTransactionMessageWithinSizeLimit(
+    pipe(
+      createTransactionMessage({ version: 0 }),
+      (m) => setTransactionMessageFeePayerSigner(feePayer, m),
+      (m) => setTransactionMessageLifetimeUsingBlockhash(SIZING_LIFETIME, m),
+      (m) => appendTransactionMessageInstructions(instructions, m),
+    ),
+  );
 }
 
 /**

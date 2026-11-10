@@ -1,6 +1,6 @@
 import type { Address, TransactionSendingSigner } from '@solana/kit';
 
-import { buildMarkLoans, buildMarkStale, buildSettleEpoch, type PoolAt } from '../actions';
+import { buildMarkLoanBatches, buildMarkStale, buildSettleEpoch, type PoolAt } from '../actions';
 import { listLoans, proveToken, sendInstructions, type Found } from '../chain';
 import { currentEpoch, epochStart, isLoanImpaired } from '../engine';
 import type { Loan, Pool } from '../generated/receivables-pool';
@@ -46,8 +46,8 @@ function Keeper({ signer, at, now, onDone }: { signer: TransactionSendingSigner;
       <div className="panel">
         <h3>Mark loans</h3>
         <p className="muted">
-          Reads each open loan's token from its signer's latest root, so NAV counts it at what its facts say. One transaction per token,
-          since each carries the token's proof.
+          Reads each open loan's token from its signer's latest root, so NAV counts it at what its facts say. Each transaction carries one
+          token's proof, so a token with many loans takes several.
         </p>
         {!loans.data && (loans.error ? <ErrorNote error={loans.error} /> : <Loading what="the pool's loans" />)}
         {loans.data && !isEpochOpen && <p className="muted">Settle the new epoch first.</p>}
@@ -64,7 +64,11 @@ function Keeper({ signer, at, now, onDone }: { signer: TransactionSendingSigner;
                 if ('missing' in proof) {
                   throw new Error(proof.missing);
                 }
-                return sendInstructions(signer, await buildMarkLoans(signer, at, proof, loanAddresses));
+                let last;
+                for (const batch of await buildMarkLoanBatches(signer, at, proof, loanAddresses)) {
+                  last = await sendInstructions(signer, batch);
+                }
+                return last;
               }}
               onDone={() => {
                 loans.reload();
