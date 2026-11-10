@@ -201,17 +201,20 @@ pub fn record_units<'info>(
     Ok(())
 }
 
-/// Writes the loan off once its vault is empty and it still owes: nothing
-/// is left to recover it from, so what it owes comes off NAV. That is a
-/// fact the vault shows, not a judgement, and leaving the loan open would
-/// keep NAV counting it at the impaired share for ever.
+/// Writes the loan off once its vault is empty, it still owes and it is
+/// impaired: nothing is left to recover it from, so what NAV counted for it
+/// comes off. Leaving it open would keep NAV counting it at the impaired
+/// share for ever. A performing loan whose units are gone waits for its
+/// mark or its maturity to impair it: the agent's redemption burns units
+/// before it pays for them, and a write-off between the two would take the
+/// whole loan off NAV until the payment put it back.
 pub fn write_off_if_units_gone<'info>(
     pool: &mut Pool,
     loan: &mut Account<'info, Loan>,
     exposure: &mut Account<'info, TokenExposure>,
     now: i64,
 ) -> Result<()> {
-    if !loan.is_open || loan.units > 0 {
+    if !loan.is_open || loan.units > 0 || !loan.is_impaired(pool) {
         return Ok(());
     }
     exposure.principal = exposure.principal.saturating_sub(loan.principal);

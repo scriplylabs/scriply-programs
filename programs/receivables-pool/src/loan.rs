@@ -55,9 +55,12 @@ impl Loan {
 
     /// Opens the loan at `now` against the units pledged, on the terms the
     /// risk engine set. The token was just read, so the loan counts as
-    /// marked this epoch.
+    /// marked this epoch. A loan written off and not yet recovered can't
+    /// open again: its recovery still comes to this account, and is the
+    /// pool's.
     pub fn open(&mut self, pool: &mut Pool, o: Opening, now: i64) -> Result<()> {
         require!(!self.is_open, PoolError::LoanOpen);
+        require!(self.written_off == 0, PoolError::LoanWrittenOff);
         self.is_open = true;
         self.principal = o.principal;
         self.carried_interest = 0;
@@ -72,7 +75,6 @@ impl Loan {
         self.marked_epoch = pool.settled_epoch;
         self.last_root_as_of = o.root_as_of;
         self.stale_discount = 0;
-        self.written_off = 0;
         pool.add_accrual(o.maturity_epoch, &self.accrual()?)?;
         pool.idle = pool
             .idle
@@ -444,10 +446,17 @@ mod tests {
             (0, 0, 0)
         );
 
+        // It can't open again until its recovery is in.
+        assert!(l.open(&mut p, opening(1_000_000, 13), now).is_err());
+        let part = l.apply_payment(&mut p, owed - 1, now).unwrap();
+        assert_eq!((part.applied, part.excess), (owed - 1, 0));
+        assert!(l.open(&mut p, opening(1_000_000, 13), now).is_err());
+
         // USDC that arrives later is the pool's, up to what was written off.
-        let late = l.apply_payment(&mut p, owed + 5, now).unwrap();
-        assert_eq!((late.applied, late.excess), (owed, 5));
+        let late = l.apply_payment(&mut p, 6, now).unwrap();
+        assert_eq!((late.applied, late.excess), (1, 5));
         assert_eq!(l.written_off, 0);
+        l.open(&mut p, opening(1_000_000, 13), now).unwrap();
     }
 
     #[test]

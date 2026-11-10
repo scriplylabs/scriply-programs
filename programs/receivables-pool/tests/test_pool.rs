@@ -137,21 +137,37 @@ fn test_repaying_returns_the_units_and_frees_the_token() {
 }
 
 #[test]
-fn test_a_loan_whose_units_are_gone_is_written_off() {
+fn test_a_loan_whose_units_are_gone_is_written_off_once_impaired() {
     let mut env = Env::new();
     env.depositor(2_000 * USDC);
-    let org = borrower(&mut env, 1_000 * UNIT);
-    borrow(&mut env, &org, 1_000 * UNIT, 500 * USDC, 13);
+    // Half its units are kept back, to borrow against again.
+    let org = borrower(&mut env, 2_000 * UNIT);
+    borrow(&mut env, &org, 1_000 * UNIT, 500 * USDC, 4);
     let creator = env.creator.insecure_clone();
 
-    // The collateral agent recovers 300 for every unit: the loan still owes.
+    // The collateral agent's redemption burns the units, and anyone syncs
+    // before the agent pays: the loan still performs, so NAV keeps it.
     env.set_time(T0 + 10 * DAY);
-    env.buy_back(&org.pubkey(), 1_000 * UNIT, 300 * USDC);
+    let before = env.pool_state().nav(env.now).unwrap();
+    env.buy_back(&org.pubkey(), 1_000 * UNIT, 0);
     let ixs = [
         env.settle_ix(&creator.pubkey()),
         env.sync_loan_ix(&org.pubkey()),
     ];
     env.send(&ixs, &[&creator]).unwrap();
+    assert!(env.loan_state(&org.pubkey()).is_open);
+    assert_eq!(env.pool_state().nav(env.now).unwrap(), before);
+
+    // The agent recovers 300: the loan still owes, and still performs.
+    pay_proceeds(&mut env, &org.pubkey(), 300 * USDC);
+    assert!(env.loan_state(&org.pubkey()).is_open);
+    assert_eq!(env.pool_state().idle, 1_800 * USDC);
+
+    // Maturity is epoch 4 and grace 2 epochs: impaired, it is written off.
+    env.set_time(T0 + 6 * EPOCH);
+    env.settle();
+    let ix = env.sync_loan_ix(&org.pubkey());
+    env.send(&[ix], &[&creator]).unwrap();
     let loan = env.loan_state(&org.pubkey());
     assert!(!loan.is_open);
     assert!(loan.written_off > 0);
@@ -160,22 +176,37 @@ fn test_a_loan_whose_units_are_gone_is_written_off() {
     assert_eq!(pool.nav(env.now).unwrap(), pool.idle);
     assert_eq!(pool.idle, 1_800 * USDC);
 
+    // The borrower can't borrow on it again while its recovery is owed.
+    let proven = env.post_token();
+    let ixs = [
+        env.settle_ix(&org.pubkey()),
+        env.borrow_ix(&org.pubkey(), 1_000 * UNIT, USDC, 4, proven),
+    ];
+    env.send_expecting_error(&ixs, &[&org], "LoanWrittenOff");
+
     // More recovered later goes to the pool, not the borrower.
-    let funding = env.fund_usdc(&creator.pubkey(), 50 * USDC);
-    let proceeds = ata(&env.loan(&org.pubkey()), &env.usdc, &spl_token::ID);
+    pay_proceeds(&mut env, &org.pubkey(), 50 * USDC);
+    assert_eq!(env.pool_state().idle, 1_850 * USDC);
+    assert_eq!(env.usdc_balance(&org.pubkey()), 500 * USDC);
+}
+
+/// Pays `usdc` into the loan's proceeds account and syncs it, in one
+/// transaction, as the README asks of whoever pays it.
+fn pay_proceeds(env: &mut Env, borrower: &Pubkey, usdc: u64) {
+    let creator = env.creator.insecure_clone();
+    let funding = env.fund_usdc(&creator.pubkey(), usdc);
+    let proceeds = ata(&env.loan(borrower), &env.usdc, &spl_token::ID);
     let ix = spl_token::instruction::transfer(
         &spl_token::ID,
         &funding,
         &proceeds,
         &creator.pubkey(),
         &[],
-        50 * USDC,
+        usdc,
     )
     .unwrap();
-    env.send(&[ix, env.sync_loan_ix(&org.pubkey())], &[&creator])
+    env.send(&[ix, env.sync_loan_ix(borrower)], &[&creator])
         .unwrap();
-    assert_eq!(env.pool_state().idle, 1_850 * USDC);
-    assert_eq!(env.usdc_balance(&org.pubkey()), 500 * USDC);
 }
 
 #[test]

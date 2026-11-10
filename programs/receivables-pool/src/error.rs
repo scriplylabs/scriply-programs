@@ -71,6 +71,8 @@ pub enum PoolError {
     LoanOpen,
     #[msg("The loan is closed")]
     LoanClosed,
+    #[msg("This borrower's last loan against this token was written off and isn't recovered yet")]
+    LoanWrittenOff,
     #[msg("Units from this borrower's last loan are still in its vault: withdraw them first")]
     UnitsNotWithdrawn,
     #[msg("That maturity is not one of the pool's")]
