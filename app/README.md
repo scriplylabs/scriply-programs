@@ -24,6 +24,12 @@ Set when the app is built (`.env.example`); nothing defaults, so a build with on
 | `VITE_RPC_URL` | A Solana RPC for that network |
 | `VITE_SNAPSHOT_API_URL` | Where the pools' signer serves a token's snapshot with its proof (`GET /v1/public/receivables-tokens/{network}/{token}/snapshots?root=`) and takes loan vault thaws (`POST /v1/public/pools/{network}/{pool}/loan-vault-thaws`) |
 
+The app reads a token's proof under the newest root any of the pool's signers posted, and asks this one URL for it. A pool with two signers works only while the newest root is the one this URL serves: when the other signer's root is newer, the app says the token isn't under the signer's latest root.
+
+## Limits
+
+A transaction is at most 1232 bytes, and a proof adds a 32-byte hash each time the tokens in the signer's tree double. Marking splits a token's loans over as many transactions as they need. A borrow is one transaction, which holds a proof of at most 5 hashes: a tree of at most 32 tokens.
+
 ## Development
 
 Needs Node 22 and npm 11 (`packageManager` in `package.json`).
