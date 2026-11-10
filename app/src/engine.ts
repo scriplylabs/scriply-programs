@@ -136,6 +136,12 @@ export function isLoanImpaired(pool: Pool, loan: Loan): boolean {
 
 /** `Pool::nav`: the pool's net asset value at `now`, in quote base units. */
 export function nav(pool: Pool, now: bigint): bigint {
+  const net = navBeforeStaleDiscount(pool, now) - pool.staleDiscount;
+  return net > 0n ? net : 0n;
+}
+
+/** `Pool::nav_before_stale_discount`: NAV counting stale loans as performing, what deposits are priced at. */
+export function navBeforeStaleDiscount(pool: Pool, now: bigint): bigint {
   let total = pool.idle + pool.impairedValue;
   for (const bucket of pool.buckets) {
     const accrual = toBucketAccrual(bucket);
@@ -144,13 +150,12 @@ export function nav(pool: Pool, now: bigint): bigint {
     }
     total += owedAt(accrual, now, epochStart(pool, bucket.maturityEpoch));
   }
-  const net = total - pool.staleDiscount;
-  return net > 0n ? net : 0n;
+  return total;
 }
 
 /** `Pool::shares_for_deposit`: the shares `amount` buys. */
 export function sharesForDeposit(pool: Pool, amount: bigint, shareSupply: bigint, now: bigint): bigint {
-  return mulDiv(amount, shareSupply + VIRTUAL_SHARES, nav(pool, now) + VIRTUAL_ASSETS);
+  return mulDiv(amount, shareSupply + VIRTUAL_SHARES, navBeforeStaleDiscount(pool, now) + VIRTUAL_ASSETS);
 }
 
 /** The quote base units `shares` are worth at today's NAV, before any queue. */

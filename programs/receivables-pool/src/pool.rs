@@ -146,6 +146,16 @@ impl Pool {
     /// less the discount on loans marked stale. USDC set aside for
     /// withdrawals is not the pool's any more.
     pub fn nav(&self, now: i64) -> Result<u64> {
+        let full = self.nav_before_stale_discount(now)?;
+        Ok(full.saturating_sub(self.stale_discount))
+    }
+
+    /// NAV counting loans marked stale this epoch as performing: what
+    /// deposits are priced at. Withdrawals take the discount and deposits
+    /// don't, so nobody gains from a loan nobody could read: a deposit
+    /// bought at the discount would be paid the full NAV once the loan is
+    /// read again next epoch, out of the depositors already in.
+    pub fn nav_before_stale_discount(&self, now: i64) -> Result<u64> {
         let mut total = add(self.idle as u128, self.impaired_value as u128)?;
         for bucket in self.buckets.iter() {
             let accrual = bucket.accrual();
@@ -155,7 +165,7 @@ impl Pool {
             let maturity = self.epoch_start(bucket.maturity_epoch);
             total = add(total, accrual.owed_at(now, maturity)?)?;
         }
-        to_u64(total.saturating_sub(self.stale_discount as u128))
+        to_u64(total)
     }
 
     pub fn add_accrual(&mut self, maturity_epoch: u64, a: &Accrual) -> Result<()> {
@@ -203,9 +213,10 @@ impl Pool {
         Ok(())
     }
 
-    /// The shares `amount` of USDC buys at `now`, given the share supply.
+    /// The shares `amount` of USDC buys at `now`, given the share supply,
+    /// at the NAV before any stale discount.
     pub fn shares_for_deposit(&self, amount: u64, share_supply: u64, now: i64) -> Result<u64> {
-        let nav = self.nav(now)?;
+        let nav = self.nav_before_stale_discount(now)?;
         to_u64(mul_div(
             amount as u128,
             share_supply as u128 + VIRTUAL_SHARES as u128,

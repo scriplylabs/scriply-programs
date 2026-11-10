@@ -486,22 +486,31 @@ fn test_a_loan_nobody_can_mark_is_marked_stale_after_the_window() {
     let pool = env.pool_state();
     assert_eq!(pool.nav(env.now).unwrap(), full - (owed - owed / 5));
 
-    // The epoch settles without the token's facts, and deposits reopen.
+    // The epoch settles without the token's facts, and deposits reopen, at
+    // the NAV counting the loan as performing.
     env.settle();
-    let d = env.depositor(10 * USDC);
-    assert!(env.shares_of(&d.pubkey()) > 0);
+    let pool = env.pool_state();
+    assert!(pool.nav_before_stale_discount(env.now).unwrap() > pool.nav(env.now).unwrap());
+    let d = env.depositor(100 * USDC);
+    let shares = env.shares_of(&d.pubkey());
+    let ix = env.request_withdrawal_ix(&d.pubkey(), shares);
+    env.send(&[ix], &[&d]).unwrap();
 
-    // A fresh mark after the deposits doesn't lift NAV this epoch, so
-    // nobody can buy shares at the discount and then clear it.
+    // A fresh mark after the deposits doesn't lift NAV this epoch.
     let low = env.pool_state().nav(env.now).unwrap();
     let proven = env.post_token();
     let ix = env.mark_loans_ix(vec![proven], &[&org.pubkey()]);
     env.send(&[ix], &[&creator]).unwrap();
     assert_eq!(env.pool_state().nav(env.now).unwrap(), low);
 
-    // Read again next epoch, the discount goes.
+    // Read again next epoch, the discount goes, and the deposit made at
+    // the discount is paid what it put in and a week's interest at most.
     env.set_time(T0 + 2 * EPOCH);
     env.settle_and_mark(&[&org.pubkey()]);
+    let ix = env.claim_withdrawal_ix(&d.pubkey(), 0);
+    env.send(&[ix], &[&d]).unwrap();
+    let paid = env.usdc_balance(&d.pubkey());
+    assert!(paid <= 100 * USDC + USDC / 2, "paid {paid}");
     let pool = env.pool_state();
     assert_eq!(pool.stale_discount, 0);
     let owed = env.loan_state(&org.pubkey()).owed(env.now).unwrap();
