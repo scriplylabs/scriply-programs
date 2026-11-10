@@ -172,6 +172,20 @@ function Facts({ pool, mint, signer, now }: { pool: PoolAt; mint: Address; signe
             if ('missing' in fresh) {
               throw new Error(fresh.missing);
             }
+            // The program fixes the rate from the snapshot sent now, so a root posted
+            // since the page loaded must not lend on worse terms than the ones shown.
+            const shown = quote && 'terms' in quote ? quote.terms : undefined;
+            const current = assessBorrow(p.risk, fresh.proven.snapshot, faceValue(units!, mintFacts.decimals, p.quoteDecimals), termSeconds);
+            if ('refusal' in current) {
+              state.reload();
+              throw new Error(`The signer posted new facts since this page loaded, and the pool now refuses: ${borrowRefusals[current.refusal]}`);
+            }
+            if (!shown || current.terms.rateBps > shown.rateBps || principal! > current.terms.maxPrincipal) {
+              state.reload();
+              throw new Error(
+                `The signer posted new facts since this page loaded: the rate is now ${formatBps(current.terms.rateBps)} and the most the units borrow is ${formatAmount(current.terms.maxPrincipal, p.quoteDecimals)} USDC. Check the new terms and borrow again.`,
+              );
+            }
             return await sendInstructions(signer, await buildBorrow(signer, pool, { mint, units: units!, principal: principal!, maturityEpochs: maturity, proof: fresh }));
           } finally {
             setProgress(undefined);
