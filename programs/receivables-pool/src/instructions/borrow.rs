@@ -129,13 +129,14 @@ pub fn handle_borrow(
         PoolError::MaturityNotOffered
     );
     let value = face_value(units, mint.decimals, ctx.accounts.quote_mint.decimals)?;
+    let maturity_epoch = pool.settled_epoch + maturity_epochs as u64;
+    // The loan opens now, partway into the epoch, so its term is shorter
+    // than its epochs.
+    let term_seconds = pool.epoch_start(maturity_epoch).saturating_sub(now).max(0) as u64;
     let terms = match pool.risk_model() {
-        RiskModel::V1 => risk_engine::assess_borrow(
-            &pool.risk,
-            &facts.snapshot,
-            value,
-            maturity_epochs as u64 * pool.epoch_seconds,
-        )?,
+        RiskModel::V1 => {
+            risk_engine::assess_borrow(&pool.risk, &facts.snapshot, value, term_seconds)?
+        }
     };
     require!(principal <= terms.max_principal, PoolError::ExceedsAdvance);
     let exposure = add(ctx.accounts.exposure.principal as u128, principal as u128)?;
@@ -164,7 +165,6 @@ pub fn handle_borrow(
         loan.borrower = ctx.accounts.borrower.key();
         loan.bump = ctx.bumps.loan;
     }
-    let maturity_epoch = pool.settled_epoch + maturity_epochs as u64;
     let rate_bps = match RateMode::try_from(pool.rate_mode)? {
         RateMode::Fixed => terms.rate_bps,
         RateMode::Variable => return err!(PoolError::RateModeNotSupported),

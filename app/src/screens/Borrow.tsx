@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { buildBorrow, buildCreateVault, findLoanVault, type PoolAt } from '../actions';
 import { requestLoanVaultThaw } from '../api';
 import { getMint, getTokenAccount, listPoolMaturities, listToken2022Holdings, proveToken, rpc, sendInstructions } from '../chain';
-import { assessBorrow, borrowRefusals, faceValue, isSettled, nav } from '../engine';
+import { assessBorrow, borrowRefusals, epochStart, faceValue, isSettled, nav } from '../engine';
 import { fetchMaybeLoan, fetchMaybeTokenExposure, findExposurePda, type Pool } from '../generated/receivables-pool';
 import { formatAmount, formatBps, formatDuration, formatTime, parseAmount, shortenAddress } from '../format';
 import { useLoad, useNow } from '../hooks';
@@ -76,7 +76,9 @@ function Facts({ pool, mint, signer, now }: { pool: PoolAt; mint: Address; signe
   const isRootTooOld = rootAge > p.maxRootAge;
   const isMintedSince = mintFacts.supply > s.networkSupply;
   const units = parseAmount(unitsText, mintFacts.decimals);
-  const termSeconds = BigInt(maturity) * p.epochSeconds;
+  // `borrow`'s term: from when the loan opens, partway into the epoch, to its maturity.
+  const termFrom = (at: bigint) => epochStart(p, p.settledEpoch + BigInt(maturity)) - at;
+  const termSeconds = termFrom(now);
   const quote = units ? assessBorrow(p.risk, s, faceValue(units, mintFacts.decimals, p.quoteDecimals), termSeconds) : undefined;
   const capLeft = (nav(p, now) * BigInt(p.capPerTokenBps)) / 10_000n - exposed;
   const limits = quote && 'terms' in quote ? [quote.terms.maxPrincipal, p.idle, capLeft > 0n ? capLeft : 0n] : [];
@@ -175,7 +177,8 @@ function Facts({ pool, mint, signer, now }: { pool: PoolAt; mint: Address; signe
             // The program fixes the rate from the snapshot sent now, so a root posted
             // since the page loaded must not lend on worse terms than the ones shown.
             const shown = quote && 'terms' in quote ? quote.terms : undefined;
-            const current = assessBorrow(p.risk, fresh.proven.snapshot, faceValue(units!, mintFacts.decimals, p.quoteDecimals), termSeconds);
+            const sentAt = BigInt(Math.floor(Date.now() / 1000));
+            const current = assessBorrow(p.risk, fresh.proven.snapshot, faceValue(units!, mintFacts.decimals, p.quoteDecimals), termFrom(sentAt));
             if ('refusal' in current) {
               state.reload();
               throw new Error(`The signer posted new facts since this page loaded, and the pool now refuses: ${borrowRefusals[current.refusal]}`);

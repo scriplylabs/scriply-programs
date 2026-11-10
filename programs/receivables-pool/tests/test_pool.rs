@@ -341,6 +341,21 @@ fn test_borrowing_is_refused_without_good_facts() {
         "TermTooShort",
     );
 
+    // Expected in 27 days: a 4-week term opened 6.9 days into the epoch
+    // matures in 21.1, too soon, though its four epochs are 28 days.
+    env.set_time(T0 + 6 * DAY + 9 * DAY / 10);
+    let mut s = env.snapshot();
+    s.weighted_days_to_due = 27;
+    let proven = env.post_with(s);
+    attempt(
+        &mut env,
+        proven,
+        1_000 * UNIT,
+        100 * USDC,
+        4,
+        "TermTooShort",
+    );
+
     // 1000 units of clean facts advance 80%.
     let proven = env.post_token();
     attempt(
