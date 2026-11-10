@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::constants::*;
+use crate::{constants::*, math::*};
 
 /// A u128 stored as two u64s, so zero-copy accounts have the same layout on
 /// the host (where u128 aligns to 16) as on-chain (where it aligns to 8).
@@ -166,19 +166,11 @@ pub struct Pool {
     pub stale_discount: u64,
     /// Shares held in escrow waiting to be paid at an epoch's start.
     pub pending_shares: u64,
-    /// The withdrawal queue's generation, which ends whenever an epoch's
-    /// start pays every pending withdrawal in full.
+    /// The withdrawal queue's generation, which ends at every epoch start
+    /// that has withdrawals to pay.
     pub withdrawal_generation: u64,
     /// Performing loans marked in the settled epoch.
     pub marked_loans: u64,
-    /// The share of each withdrawal still unpaid in this generation, scaled
-    /// by INDEX_SCALE.
-    pub remaining_factor: Wide,
-    /// The USDC paid per normalized withdrawal share in this generation,
-    /// scaled by INDEX_SCALE.
-    pub paid_per_norm: Wide,
-    /// The sum of every pending withdrawal's normalized shares.
-    pub pending_norm: Wide,
     /// The loan terms allowed, in epochs; the first `maturity_count` are set.
     pub maturities: [u16; MAX_MATURITIES],
     pub risk: RiskParams,
@@ -354,21 +346,43 @@ pub struct WithdrawalRequest {
     pub pool: Pubkey,
     pub owner: Pubkey,
     pub bump: u8,
+    /// The generation the shares are queued in.
     pub generation: u64,
-    /// The request's shares, normalized by the generation's remaining factor
-    /// when it was made, scaled by INDEX_SCALE.
-    pub norm: u128,
-    /// The generation's `paid_per_norm` when the request last claimed.
-    pub paid_per_norm_claimed: u128,
+    pub shares: u64,
 }
 
-/// What a finished generation of the withdrawal queue paid per normalized
-/// share, so requests from it can claim after it ends.
+/// What an ended generation of the withdrawal queue asked and paid, so its
+/// requests can claim after it ends.
 #[account]
 #[derive(InitSpace)]
 pub struct WithdrawalGeneration {
     pub version: u8,
     pub pool: Pubkey,
     pub generation: u64,
-    pub final_paid_per_norm: u128,
+    /// Shares the generation's requests asked to withdraw.
+    pub shares: u64,
+    /// Of those, the shares paid for.
+    pub shares_paid: u64,
+    /// USDC set aside for them.
+    pub paid: u64,
+}
+
+impl WithdrawalGeneration {
+    /// What a request for `shares` in this generation is owed: the USDC it
+    /// is paid, and its shares left unpaid. Both round down, so the
+    /// generation's requests are never owed more than it set aside, nor
+    /// given back more shares than it left in escrow.
+    pub fn owed_to(&self, shares: u64) -> Result<(u64, u64)> {
+        let usdc = to_u64(mul_div(
+            shares as u128,
+            self.paid as u128,
+            self.shares as u128,
+        )?)?;
+        let unpaid = to_u64(mul_div(
+            shares as u128,
+            (self.shares - self.shares_paid) as u128,
+            self.shares as u128,
+        )?)?;
+        Ok((usdc, unpaid))
+    }
 }

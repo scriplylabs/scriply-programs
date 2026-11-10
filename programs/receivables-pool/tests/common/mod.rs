@@ -829,7 +829,7 @@ impl Env {
                 share_mint: self.share_mint,
                 owner_shares: ata(owner, &self.share_mint, &spl_token::ID),
                 share_escrow: self.share_escrow,
-                request: pda(&[WITHDRAWAL_SEED, self.pool.as_ref(), owner.as_ref()]),
+                request: self.request(owner),
                 share_token_program: spl_token::ID,
                 system_program: system_program::ID,
             }
@@ -837,7 +837,7 @@ impl Env {
         )
     }
 
-    pub fn claim_withdrawal_ix(&self, owner: &Pubkey, generation: Option<u64>) -> Instruction {
+    pub fn claim_withdrawal_ix(&self, owner: &Pubkey, generation: u64) -> Instruction {
         Instruction::new_with_bytes(
             receivables_pool::id(),
             &receivables_pool::instruction::ClaimWithdrawal {}.data(),
@@ -848,8 +848,8 @@ impl Env {
                 quote_mint: self.usdc,
                 quote_vault: self.quote_vault,
                 owner_quote: ata(owner, &self.usdc, &spl_token::ID),
-                request: pda(&[WITHDRAWAL_SEED, self.pool.as_ref(), owner.as_ref()]),
-                generation_record: generation.map(|g| self.generation_record(g)),
+                request: self.request(owner),
+                generation_record: self.generation_record(generation),
                 quote_token_program: spl_token::ID,
             }
             .to_account_metas(None),
@@ -864,6 +864,16 @@ impl Env {
     pub fn loan_state(&self, borrower: &Pubkey) -> Loan {
         let account = self.svm.get_account(&self.loan(borrower)).unwrap();
         Loan::try_deserialize(&mut account.data.as_slice()).unwrap()
+    }
+
+    /// A depositor's withdrawal request.
+    pub fn request(&self, owner: &Pubkey) -> Pubkey {
+        pda(&[WITHDRAWAL_SEED, self.pool.as_ref(), owner.as_ref()])
+    }
+
+    pub fn request_state(&self, owner: &Pubkey) -> WithdrawalRequest {
+        let account = self.svm.get_account(&self.request(owner)).unwrap();
+        WithdrawalRequest::try_deserialize(&mut account.data.as_slice()).unwrap()
     }
 
     pub fn exposure_state(&self) -> TokenExposure {

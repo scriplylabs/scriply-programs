@@ -1,7 +1,7 @@
 import type { Address, TransactionSendingSigner } from '@solana/kit';
 
-import { buildMarkLoanBatches, buildMarkStale, buildSettleEpoch, type PoolAt } from '../actions';
-import { listLoans, proveToken, sendInstructions, type Found } from '../chain';
+import { buildClaimWithdrawal, buildMarkLoanBatches, buildMarkStale, buildSettleEpoch, type PoolAt } from '../actions';
+import { listLoans, listWithdrawalRequests, proveToken, sendInstructions, type Found } from '../chain';
 import { currentEpoch, epochStart, isLoanImpaired } from '../engine';
 import type { Loan, Pool } from '../generated/receivables-pool';
 import { formatTime, shortenAddress } from '../format';
@@ -28,6 +28,8 @@ function groupUnmarked(pool: Pool, loans: Found<Loan>[]): Map<Address, Address[]
 function Keeper({ signer, at, now, onDone }: { signer: TransactionSendingSigner; at: PoolAt; now: bigint; onDone: () => void }) {
   const { pool } = at;
   const loans = useLoad(() => listLoans(at.address), [at.address, pool]);
+  const requests = useLoad(() => listWithdrawalRequests(at.address), [at.address, pool]);
+  const settled = (requests.data ?? []).filter((r) => r.data.generation < pool.withdrawalGeneration);
   const isEpochOpen = pool.settledEpoch === currentEpoch(pool, now);
   const windowCloses = epochStart(pool, pool.settledEpoch) + pool.markWindowSeconds;
   const unmarked = loans.data && isEpochOpen ? groupUnmarked(pool, loans.data) : new Map<Address, Address[]>();
@@ -99,6 +101,31 @@ function Keeper({ signer, at, now, onDone }: { signer: TransactionSendingSigner;
             onDone();
           }}
         />
+      </div>
+      <div className="panel">
+        <h3>Claim settled withdrawals</h3>
+        <p className="muted">
+          Pays each settled request's owner what it was paid, and queues its unpaid shares again, so a depositor who is away still takes part in
+          the next epoch's start. The USDC goes to the owner, never to you; you pay the fees.
+        </p>
+        {!requests.data && (requests.error ? <ErrorNote error={requests.error} /> : <Loading what="the pool's withdrawal requests" />)}
+        {requests.data && (
+          <ActionButton
+            label={`Claim ${settled.length} for their owners`}
+            disabled={settled.length === 0}
+            run={async () => {
+              let last;
+              for (const r of settled) {
+                last = await sendInstructions(signer, await buildClaimWithdrawal(signer, at, r.data.owner, r.data.generation));
+              }
+              return last;
+            }}
+            onDone={() => {
+              requests.reload();
+              onDone();
+            }}
+          />
+        )}
       </div>
     </>
   );

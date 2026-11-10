@@ -86,7 +86,6 @@ pub fn handle_create_pool(ctx: Context<CreatePool>, seed: u64, params: PoolParam
     pool.epoch_seconds = params.epoch_seconds;
     pool.mark_window_seconds = params.mark_window_seconds;
     pool.max_root_age = params.max_root_age;
-    pool.remaining_factor.set(INDEX_SCALE);
     for (slot, maturity) in pool.maturities.iter_mut().zip(params.maturities.iter()) {
         *slot = *maturity;
     }

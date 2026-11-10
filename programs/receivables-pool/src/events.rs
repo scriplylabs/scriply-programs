@@ -26,6 +26,8 @@ pub struct WithdrawalClaimed {
     pub pool: Pubkey,
     pub owner: Pubkey,
     pub amount: u64,
+    /// Shares left unpaid and queued again for the next epoch's start.
+    pub shares_requeued: u64,
 }
 
 #[event]

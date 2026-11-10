@@ -97,8 +97,6 @@ pub enum PoolError {
     ZeroAmount,
     #[msg("The deposit is too small to buy a share")]
     DepositTooSmall,
-    #[msg("The withdrawal's generation has ended: pass its generation record")]
-    GenerationRecordRequired,
     #[msg("The generation record passed is not the one this account needs")]
     WrongGenerationRecord,
 

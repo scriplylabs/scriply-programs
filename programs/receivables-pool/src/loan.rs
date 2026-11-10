@@ -307,7 +307,6 @@ mod tests {
         p.epoch_seconds = 7 * DAY as u64;
         p.grace_epochs = 1;
         p.idle = 1_000_000_000;
-        p.remaining_factor.set(INDEX_SCALE);
         p
     }
 

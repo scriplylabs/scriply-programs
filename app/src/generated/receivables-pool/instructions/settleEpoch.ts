@@ -143,8 +143,8 @@ export type SettleEpochAsyncInput<
     InstructionAccountInput,
 > = {
   /**
-   * Anyone may settle; they pay the rent of a generation record when one
-   * is written.
+   * Anyone may settle; they pay the rent of the generation record
+   * written when withdrawals are paid.
    */
   payer: TAccountPayer;
   pool: TAccountPool;
@@ -153,7 +153,7 @@ export type SettleEpochAsyncInput<
   shareEscrow?: TAccountShareEscrow;
   /**
    * [GENERATION_SEED, pool, generation]; written only if this settlement
-   * ends the generation, and checked in the handler.
+   * pays withdrawals, and checked in the handler.
    */
   generationRecord: TAccountGenerationRecord;
   shareTokenProgram?: TAccountShareTokenProgram;
@@ -384,8 +384,8 @@ export type SettleEpochInput<
     InstructionAccountInput,
 > = {
   /**
-   * Anyone may settle; they pay the rent of a generation record when one
-   * is written.
+   * Anyone may settle; they pay the rent of the generation record
+   * written when withdrawals are paid.
    */
   payer: TAccountPayer;
   pool: TAccountPool;
@@ -394,7 +394,7 @@ export type SettleEpochInput<
   shareEscrow: TAccountShareEscrow;
   /**
    * [GENERATION_SEED, pool, generation]; written only if this settlement
-   * ends the generation, and checked in the handler.
+   * pays withdrawals, and checked in the handler.
    */
   generationRecord: TAccountGenerationRecord;
   shareTokenProgram?: TAccountShareTokenProgram;
@@ -578,8 +578,8 @@ export type ParsedSettleEpochInstruction<
   programAddress: Address<TProgram>;
   accounts: {
     /**
-     * Anyone may settle; they pay the rent of a generation record when one
-     * is written.
+     * Anyone may settle; they pay the rent of the generation record
+     * written when withdrawals are paid.
      */
     payer: TAccountMetas[0];
     pool: TAccountMetas[1];
@@ -588,7 +588,7 @@ export type ParsedSettleEpochInstruction<
     shareEscrow: TAccountMetas[4];
     /**
      * [GENERATION_SEED, pool, generation]; written only if this settlement
-     * ends the generation, and checked in the handler.
+     * pays withdrawals, and checked in the handler.
      */
     generationRecord: TAccountMetas[5];
     shareTokenProgram: TAccountMetas[6];

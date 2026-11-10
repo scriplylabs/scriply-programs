@@ -99,12 +99,10 @@ export const RECEIVABLES_POOL_ERROR__INVALID_ATTESTATION = 0x1797; // 6039
 export const RECEIVABLES_POOL_ERROR__ZERO_AMOUNT = 0x1798; // 6040
 /** DepositTooSmall: The deposit is too small to buy a share */
 export const RECEIVABLES_POOL_ERROR__DEPOSIT_TOO_SMALL = 0x1799; // 6041
-/** GenerationRecordRequired: The withdrawal's generation has ended: pass its generation record */
-export const RECEIVABLES_POOL_ERROR__GENERATION_RECORD_REQUIRED = 0x179a; // 6042
 /** WrongGenerationRecord: The generation record passed is not the one this account needs */
-export const RECEIVABLES_POOL_ERROR__WRONG_GENERATION_RECORD = 0x179b; // 6043
+export const RECEIVABLES_POOL_ERROR__WRONG_GENERATION_RECORD = 0x179a; // 6042
 /** MathOverflow: Arithmetic overflow */
-export const RECEIVABLES_POOL_ERROR__MATH_OVERFLOW = 0x179c; // 6044
+export const RECEIVABLES_POOL_ERROR__MATH_OVERFLOW = 0x179b; // 6043
 
 export type ReceivablesPoolError =
   | typeof RECEIVABLES_POOL_ERROR__ALREADY_MARKED
@@ -115,7 +113,6 @@ export type ReceivablesPoolError =
   | typeof RECEIVABLES_POOL_ERROR__EPOCH_NOT_SETTLED
   | typeof RECEIVABLES_POOL_ERROR__EXCEEDS_ADVANCE
   | typeof RECEIVABLES_POOL_ERROR__EXCEEDS_TOKEN_CAP
-  | typeof RECEIVABLES_POOL_ERROR__GENERATION_RECORD_REQUIRED
   | typeof RECEIVABLES_POOL_ERROR__INSUFFICIENT_LIQUIDITY
   | typeof RECEIVABLES_POOL_ERROR__INVALID_ADVANCE
   | typeof RECEIVABLES_POOL_ERROR__INVALID_ATTESTATION
@@ -165,7 +162,6 @@ if (process.env["NODE_ENV"] !== "production") {
     [RECEIVABLES_POOL_ERROR__EPOCH_NOT_SETTLED]: `A new epoch has started: settle it first`,
     [RECEIVABLES_POOL_ERROR__EXCEEDS_ADVANCE]: `The loan exceeds the advance the risk engine allows for the units pledged`,
     [RECEIVABLES_POOL_ERROR__EXCEEDS_TOKEN_CAP]: `The loan would take this token's loans past the pool's cap`,
-    [RECEIVABLES_POOL_ERROR__GENERATION_RECORD_REQUIRED]: `The withdrawal's generation has ended: pass its generation record`,
     [RECEIVABLES_POOL_ERROR__INSUFFICIENT_LIQUIDITY]: `The pool has too little idle USDC for the loan`,
     [RECEIVABLES_POOL_ERROR__INVALID_ADVANCE]: `The advance rates must satisfy base <= max <= 10000 bps`,
     [RECEIVABLES_POOL_ERROR__INVALID_ATTESTATION]: `The attestation is not the pool's for this wallet, or has expired`,

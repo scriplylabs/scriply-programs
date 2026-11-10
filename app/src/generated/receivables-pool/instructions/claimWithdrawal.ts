@@ -20,7 +20,6 @@ import {
   SolanaError,
   transformEncoder,
   type AccountMeta,
-  type AccountSignerMeta,
   type Address,
   type FixedSizeCodec,
   type FixedSizeDecoder,
@@ -31,14 +30,12 @@ import {
   type ReadonlyAccount,
   type ReadonlyUint8Array,
   type WritableAccount,
-  type WritableSignerAccount,
 } from "@solana/kit";
 import {
   getAccountMetaFactory,
   getAddressFromResolvedInstructionAccount,
   type InstructionAccountInput,
   type InstructionAccountInputAddress,
-  type InstructionSignerInput,
   type ResolvedInstructionAccount,
   type ResolvedInstructionAccountMeta,
 } from "@solana/program-client-core";
@@ -71,8 +68,7 @@ export type ClaimWithdrawalInstruction<
   InstructionWithAccounts<
     [
       TAccountOwner extends string
-        ? WritableSignerAccount<TAccountOwner> &
-            AccountSignerMeta<TAccountOwner>
+        ? WritableAccount<TAccountOwner>
         : TAccountOwner,
       TAccountPool extends string
         ? WritableAccount<TAccountPool>
@@ -132,7 +128,7 @@ export function getClaimWithdrawalInstructionDataCodec(): FixedSizeCodec<
 }
 
 export type ClaimWithdrawalAsyncInput<
-  TAccountOwner extends InstructionSignerInput = InstructionSignerInput,
+  TAccountOwner extends InstructionAccountInput = InstructionAccountInput,
   TAccountPool extends InstructionAccountInput = InstructionAccountInput,
   TAccountPoolAuthority extends InstructionAccountInput =
     InstructionAccountInput,
@@ -145,6 +141,10 @@ export type ClaimWithdrawalAsyncInput<
   TAccountQuoteTokenProgram extends InstructionAccountInput =
     InstructionAccountInput,
 > = {
+  /**
+   * back when it closes; checked by the request's `has_one`. Anyone may
+   * claim for them, so a keeper can queue unpaid shares again.
+   */
   owner: TAccountOwner;
   pool: TAccountPool;
   poolAuthority?: TAccountPoolAuthority;
@@ -152,13 +152,16 @@ export type ClaimWithdrawalAsyncInput<
   quoteVault?: TAccountQuoteVault;
   ownerQuote: TAccountOwnerQuote;
   request?: TAccountRequest;
-  /** The record of the request's generation, needed once it has ended. */
-  generationRecord?: TAccountGenerationRecord;
+  /**
+   * The record of the request's generation, which exists once an
+   * epoch's start has settled it.
+   */
+  generationRecord: TAccountGenerationRecord;
   quoteTokenProgram: TAccountQuoteTokenProgram;
 };
 
 export async function getClaimWithdrawalInstructionAsync<
-  TAccountOwner extends InstructionSignerInput,
+  TAccountOwner extends InstructionAccountInput,
   TAccountPool extends InstructionAccountInput,
   TAccountPoolAuthority extends InstructionAccountInput,
   TAccountQuoteMint extends InstructionAccountInput,
@@ -237,7 +240,7 @@ export async function getClaimWithdrawalInstructionAsync<
 
   // Original accounts.
   const originalAccounts = {
-    owner: { value: input.owner ?? null, isSigner: true, isWritable: true },
+    owner: { value: input.owner ?? null, isSigner: false, isWritable: true },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
     poolAuthority: {
       value: input.poolAuthority ?? null,
@@ -390,7 +393,7 @@ export async function getClaimWithdrawalInstructionAsync<
 }
 
 export type ClaimWithdrawalInput<
-  TAccountOwner extends InstructionSignerInput = InstructionSignerInput,
+  TAccountOwner extends InstructionAccountInput = InstructionAccountInput,
   TAccountPool extends InstructionAccountInput = InstructionAccountInput,
   TAccountPoolAuthority extends InstructionAccountInput =
     InstructionAccountInput,
@@ -403,6 +406,10 @@ export type ClaimWithdrawalInput<
   TAccountQuoteTokenProgram extends InstructionAccountInput =
     InstructionAccountInput,
 > = {
+  /**
+   * back when it closes; checked by the request's `has_one`. Anyone may
+   * claim for them, so a keeper can queue unpaid shares again.
+   */
   owner: TAccountOwner;
   pool: TAccountPool;
   poolAuthority: TAccountPoolAuthority;
@@ -410,13 +417,16 @@ export type ClaimWithdrawalInput<
   quoteVault: TAccountQuoteVault;
   ownerQuote: TAccountOwnerQuote;
   request: TAccountRequest;
-  /** The record of the request's generation, needed once it has ended. */
-  generationRecord?: TAccountGenerationRecord;
+  /**
+   * The record of the request's generation, which exists once an
+   * epoch's start has settled it.
+   */
+  generationRecord: TAccountGenerationRecord;
   quoteTokenProgram: TAccountQuoteTokenProgram;
 };
 
 export function getClaimWithdrawalInstruction<
-  TAccountOwner extends InstructionSignerInput,
+  TAccountOwner extends InstructionAccountInput,
   TAccountPool extends InstructionAccountInput,
   TAccountPoolAuthority extends InstructionAccountInput,
   TAccountQuoteMint extends InstructionAccountInput,
@@ -493,7 +503,7 @@ export function getClaimWithdrawalInstruction<
 
   // Original accounts.
   const originalAccounts = {
-    owner: { value: input.owner ?? null, isSigner: true, isWritable: true },
+    owner: { value: input.owner ?? null, isSigner: false, isWritable: true },
     pool: { value: input.pool ?? null, isSigner: false, isWritable: true },
     poolAuthority: {
       value: input.poolAuthority ?? null,
@@ -597,6 +607,10 @@ export type ParsedClaimWithdrawalInstruction<
 > = {
   programAddress: Address<TProgram>;
   accounts: {
+    /**
+     * back when it closes; checked by the request's `has_one`. Anyone may
+     * claim for them, so a keeper can queue unpaid shares again.
+     */
     owner: TAccountMetas[0];
     pool: TAccountMetas[1];
     poolAuthority: TAccountMetas[2];
@@ -604,8 +618,11 @@ export type ParsedClaimWithdrawalInstruction<
     quoteVault: TAccountMetas[4];
     ownerQuote: TAccountMetas[5];
     request: TAccountMetas[6];
-    /** The record of the request's generation, needed once it has ended. */
-    generationRecord?: TAccountMetas[7] | undefined;
+    /**
+     * The record of the request's generation, which exists once an
+     * epoch's start has settled it.
+     */
+    generationRecord: TAccountMetas[7];
     quoteTokenProgram: TAccountMetas[8];
   };
   data: ClaimWithdrawalInstructionData;
@@ -634,12 +651,6 @@ export function parseClaimWithdrawalInstruction<
     accountIndex += 1;
     return accountMeta;
   };
-  const getNextOptionalAccount = () => {
-    const accountMeta = getNextAccount();
-    return accountMeta.address === RECEIVABLES_POOL_PROGRAM_ADDRESS
-      ? undefined
-      : accountMeta;
-  };
   return {
     programAddress: instruction.programAddress,
     accounts: {
@@ -650,7 +661,7 @@ export function parseClaimWithdrawalInstruction<
       quoteVault: getNextAccount(),
       ownerQuote: getNextAccount(),
       request: getNextAccount(),
-      generationRecord: getNextOptionalAccount(),
+      generationRecord: getNextAccount(),
       quoteTokenProgram: getNextAccount(),
     },
     data: getClaimWithdrawalInstructionDataDecoder().decode(instruction.data),

@@ -21,8 +21,6 @@ import {
   getBytesEncoder,
   getStructDecoder,
   getStructEncoder,
-  getU128Decoder,
-  getU128Encoder,
   getU64Decoder,
   getU64Encoder,
   getU8Decoder,
@@ -59,14 +57,24 @@ export type WithdrawalGeneration = {
   version: number;
   pool: Address;
   generation: bigint;
-  finalPaidPerNorm: bigint;
+  /** Shares the generation's requests asked to withdraw. */
+  shares: bigint;
+  /** Of those, the shares paid for. */
+  sharesPaid: bigint;
+  /** USDC set aside for them. */
+  paid: bigint;
 };
 
 export type WithdrawalGenerationArgs = {
   version: number;
   pool: Address | HasAddress;
   generation: number | bigint;
-  finalPaidPerNorm: number | bigint;
+  /** Shares the generation's requests asked to withdraw. */
+  shares: number | bigint;
+  /** Of those, the shares paid for. */
+  sharesPaid: number | bigint;
+  /** USDC set aside for them. */
+  paid: number | bigint;
 };
 
 /** Gets the encoder for {@link WithdrawalGenerationArgs} account data. */
@@ -77,7 +85,9 @@ export function getWithdrawalGenerationEncoder(): FixedSizeEncoder<WithdrawalGen
       ["version", getU8Encoder()],
       ["pool", getAddressEncoder()],
       ["generation", getU64Encoder()],
-      ["finalPaidPerNorm", getU128Encoder()],
+      ["shares", getU64Encoder()],
+      ["sharesPaid", getU64Encoder()],
+      ["paid", getU64Encoder()],
     ]),
     (value) => ({
       ...value,
@@ -93,7 +103,9 @@ export function getWithdrawalGenerationDecoder(): FixedSizeDecoder<WithdrawalGen
     ["version", getU8Decoder()],
     ["pool", getAddressDecoder()],
     ["generation", getU64Decoder()],
-    ["finalPaidPerNorm", getU128Decoder()],
+    ["shares", getU64Decoder()],
+    ["sharesPaid", getU64Decoder()],
+    ["paid", getU64Decoder()],
   ]);
 }
 
@@ -194,5 +206,5 @@ export async function fetchAllMaybeWithdrawalGeneration(
 }
 
 export function getWithdrawalGenerationSize(): number {
-  return 65;
+  return 73;
 }

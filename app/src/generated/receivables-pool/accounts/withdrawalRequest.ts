@@ -21,8 +21,6 @@ import {
   getBytesEncoder,
   getStructDecoder,
   getStructEncoder,
-  getU128Decoder,
-  getU128Encoder,
   getU64Decoder,
   getU64Encoder,
   getU8Decoder,
@@ -60,14 +58,9 @@ export type WithdrawalRequest = {
   pool: Address;
   owner: Address;
   bump: number;
+  /** The generation the shares are queued in. */
   generation: bigint;
-  /**
-   * The request's shares, normalized by the generation's remaining factor
-   * when it was made, scaled by INDEX_SCALE.
-   */
-  norm: bigint;
-  /** The generation's `paid_per_norm` when the request last claimed. */
-  paidPerNormClaimed: bigint;
+  shares: bigint;
 };
 
 export type WithdrawalRequestArgs = {
@@ -75,14 +68,9 @@ export type WithdrawalRequestArgs = {
   pool: Address | HasAddress;
   owner: Address | HasAddress;
   bump: number;
+  /** The generation the shares are queued in. */
   generation: number | bigint;
-  /**
-   * The request's shares, normalized by the generation's remaining factor
-   * when it was made, scaled by INDEX_SCALE.
-   */
-  norm: number | bigint;
-  /** The generation's `paid_per_norm` when the request last claimed. */
-  paidPerNormClaimed: number | bigint;
+  shares: number | bigint;
 };
 
 /** Gets the encoder for {@link WithdrawalRequestArgs} account data. */
@@ -95,8 +83,7 @@ export function getWithdrawalRequestEncoder(): FixedSizeEncoder<WithdrawalReques
       ["owner", getAddressEncoder()],
       ["bump", getU8Encoder()],
       ["generation", getU64Encoder()],
-      ["norm", getU128Encoder()],
-      ["paidPerNormClaimed", getU128Encoder()],
+      ["shares", getU64Encoder()],
     ]),
     (value) => ({ ...value, discriminator: WITHDRAWAL_REQUEST_DISCRIMINATOR }),
   );
@@ -111,8 +98,7 @@ export function getWithdrawalRequestDecoder(): FixedSizeDecoder<WithdrawalReques
     ["owner", getAddressDecoder()],
     ["bump", getU8Decoder()],
     ["generation", getU64Decoder()],
-    ["norm", getU128Decoder()],
-    ["paidPerNormClaimed", getU128Decoder()],
+    ["shares", getU64Decoder()],
   ]);
 }
 
@@ -207,5 +193,5 @@ export async function fetchAllMaybeWithdrawalRequest(
 }
 
 export function getWithdrawalRequestSize(): number {
-  return 114;
+  return 90;
 }

@@ -86,7 +86,7 @@ fn test_adr_example_end_to_end() {
     env.send(&[ix], &[&depositor]).unwrap();
     env.set_time(T0 + 13 * EPOCH);
     env.settle();
-    let ix = env.claim_withdrawal_ix(&depositor.pubkey(), Some(0));
+    let ix = env.claim_withdrawal_ix(&depositor.pubkey(), 0);
     env.send(&[ix], &[&depositor]).unwrap();
     let paid = env.usdc_balance(&depositor.pubkey());
     assert!(
@@ -520,15 +520,25 @@ fn test_withdrawals_wait_while_the_pool_is_lent_out() {
     let ix = env.request_withdrawal_ix(&depositor_b.pubkey(), shares);
     env.send(&[ix], &[&depositor_b]).unwrap();
 
-    // Only 400 is idle at the next epoch's start, so 400 is paid and the rest waits.
+    // Before the epoch's start nothing is settled to claim: its generation
+    // has no record yet.
+    let ix = env.claim_withdrawal_ix(&depositor_b.pubkey(), 0);
+    env.send_expecting_error(&[ix], &[&depositor_b], "AccountNotInitialized");
+
+    // Only 400 is idle at the next epoch's start, so 400 is paid. A keeper
+    // claims it for the depositor, which queues the unpaid shares again.
     env.set_time(T0 + EPOCH);
     env.settle_and_mark(&[&org_b.pubkey()]);
     let pool = env.pool_state();
     assert_eq!((pool.idle, pool.reserved), (0, 400 * USDC));
-    assert_eq!(pool.withdrawal_generation, 0);
-    let ix = env.claim_withdrawal_ix(&depositor_b.pubkey(), None);
-    env.send(&[ix], &[&depositor_b]).unwrap();
+    assert_eq!((pool.withdrawal_generation, pool.pending_shares), (1, 0));
+    let keeper = env.wallet();
+    let ix = env.claim_withdrawal_ix(&depositor_b.pubkey(), 0);
+    env.send(&[ix], &[&keeper]).unwrap();
     assert_eq!(env.usdc_balance(&depositor_b.pubkey()), 400 * USDC);
+    let request = env.request_state(&depositor_b.pubkey());
+    assert_eq!(request.generation, 1);
+    assert_eq!(env.pool_state().pending_shares, request.shares);
 
     // Once the loan is repaid, the next epoch's start pays the rest.
     env.fund_usdc(&org_b.pubkey(), 10 * USDC);
@@ -536,15 +546,77 @@ fn test_withdrawals_wait_while_the_pool_is_lent_out() {
     env.send(&ixs, &[&org_b]).unwrap();
     env.set_time(T0 + 2 * EPOCH);
     env.settle();
-    assert_eq!(env.pool_state().withdrawal_generation, 1);
-    let ix = env.claim_withdrawal_ix(&depositor_b.pubkey(), Some(0));
+    assert_eq!(env.pool_state().withdrawal_generation, 2);
+    let ix = env.claim_withdrawal_ix(&depositor_b.pubkey(), 1);
     env.send(&[ix], &[&depositor_b]).unwrap();
+    assert!(env
+        .svm
+        .get_account(&env.request(&depositor_b.pubkey()))
+        .is_none_or(|a| a.lamports == 0));
     // 1000 back, plus a week's interest on 600 at 12% (1.380821), less rounding.
     let paid = env.usdc_balance(&depositor_b.pubkey());
     assert!(
         (1_001_380_819..=1_001_380_821).contains(&paid),
         "paid {paid}"
     );
+}
+
+#[test]
+fn test_withdrawals_paid_nearly_in_full_twice_lose_nothing() {
+    // The review's case: settlements just short of the queue, twice, used
+    // to wear the queue's index down until a later request claimed 0.
+    let mut env = Env::with_params(|p| p.cap_per_token_bps = 10_000);
+    let a = env.depositor(1_000 * USDC);
+    let org = borrower(&mut env, 1_000 * UNIT);
+    borrow(&mut env, &org, 1_000 * UNIT, 600 * USDC, 4);
+    let keeper = env.wallet();
+
+    // A asks for a little more than the 400 idle.
+    let shares = env.shares_of(&a.pubkey()) * 401 / 1_000;
+    let ix = env.request_withdrawal_ix(&a.pubkey(), shares);
+    env.send(&[ix], &[&a]).unwrap();
+    env.set_time(T0 + EPOCH);
+    env.settle_and_mark(&[&org.pubkey()]);
+    let ix = env.claim_withdrawal_ix(&a.pubkey(), 0);
+    env.send(&[ix], &[&keeper]).unwrap();
+    assert_eq!(env.usdc_balance(&a.pubkey()), 400 * USDC);
+
+    // Half a dollar comes back: short again.
+    env.fund_usdc(&org.pubkey(), USDC / 2);
+    let ixs = [env.repay_ix(&org.pubkey(), &org.pubkey(), USDC / 2)];
+    env.send(&ixs, &[&org]).unwrap();
+    env.set_time(T0 + 2 * EPOCH);
+    env.settle_and_mark(&[&org.pubkey()]);
+    let ix = env.claim_withdrawal_ix(&a.pubkey(), 1);
+    env.send(&[ix], &[&keeper]).unwrap();
+    assert_eq!(env.usdc_balance(&a.pubkey()), 400 * USDC + USDC / 2);
+    assert!(env.request_state(&a.pubkey()).shares > 0);
+
+    // C deposits 300 and asks for all of it; the loan is repaid, so the next
+    // start pays everyone in full.
+    let c = env.depositor(300 * USDC);
+    let ix = env.request_withdrawal_ix(&c.pubkey(), env.shares_of(&c.pubkey()));
+    env.send(&[ix], &[&c]).unwrap();
+    env.fund_usdc(&org.pubkey(), 10 * USDC);
+    let ixs = [env.repay_ix(&org.pubkey(), &org.pubkey(), u64::MAX)];
+    env.send(&ixs, &[&org]).unwrap();
+    env.set_time(T0 + 3 * EPOCH);
+    env.settle();
+    for owner in [&a, &c] {
+        let ix = env.claim_withdrawal_ix(&owner.pubkey(), 2);
+        env.send(&[ix], &[&keeper]).unwrap();
+    }
+    let paid_c = env.usdc_balance(&c.pubkey());
+    assert!(
+        (299 * USDC..=300 * USDC).contains(&paid_c),
+        "C paid {paid_c}"
+    );
+    let paid_a = env.usdc_balance(&a.pubkey());
+    assert!(
+        (401 * USDC..402 * USDC).contains(&paid_a),
+        "A paid {paid_a}"
+    );
+    assert!(env.pool_state().reserved < 10, "dust only");
 }
 
 #[test]

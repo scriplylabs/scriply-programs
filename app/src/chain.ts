@@ -41,12 +41,15 @@ import {
   getLoanDecoder,
   getPoolDecoder,
   getReceivablesPoolErrorMessage,
+  getWithdrawalRequestDecoder,
   LOAN_DISCRIMINATOR,
   POOL_DISCRIMINATOR,
   RECEIVABLES_POOL_PROGRAM_ADDRESS,
+  WITHDRAWAL_REQUEST_DISCRIMINATOR,
   type Loan,
   type Pool,
   type ReceivablesPoolError,
+  type WithdrawalRequest,
 } from './generated/receivables-pool';
 import { fetchMaybeSnapshotRoots, findRootsPda } from './generated/snapshot-roots';
 import type { ProvenSnapshot } from './snapshot';
@@ -116,6 +119,16 @@ export async function listLoans(poolAddress: Address): Promise<Found<Loan>[]> {
     { offset: 9n, bytes: poolAddress as string as Base58EncodedBytes },
   ]);
   return accounts.map((a) => ({ address: a.address, data: getLoanDecoder().decode(a.bytes) }));
+}
+
+/** Every withdrawal request open in a pool. */
+export async function listWithdrawalRequests(poolAddress: Address): Promise<Found<WithdrawalRequest>[]> {
+  // A request's pool follows its 8-byte discriminator and 1-byte version.
+  const accounts = await getProgramAccounts([
+    { offset: 0n, bytes: toBase58(WITHDRAWAL_REQUEST_DISCRIMINATOR) },
+    { offset: 9n, bytes: poolAddress as string as Base58EncodedBytes },
+  ]);
+  return accounts.map((a) => ({ address: a.address, data: getWithdrawalRequestDecoder().decode(a.bytes) }));
 }
 
 /** A mint's supply and decimals; a Token-2022 mint's base fields read the same. */
