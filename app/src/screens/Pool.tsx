@@ -117,6 +117,8 @@ function PoolFacts({ address, pool, shareSupply, now }: { address: Address; pool
           <dd>{formatBps(pool.risk.weight31To60Bps)}</dd>
           <dt>Refuses when late</dt>
           <dd>more than {formatBps(pool.risk.maxLateShareBps)} of units past {pool.risk.lateAfterDays} days</dd>
+          <dt>Refuses when burn debt was overdue</dt>
+          <dd>more than {pool.risk.maxDaysBurnDebtOverdue} days in the past year</dd>
           <dt>Rate</dt>
           <dd>
             {formatBps(pool.risk.baseRateBps)} base, within {formatBps(pool.risk.minRateBps)}–{formatBps(pool.risk.maxRateBps)}; spreads up to{' '}

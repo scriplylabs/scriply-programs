@@ -289,7 +289,7 @@ export function getPoolEncoder(): FixedSizeEncoder<PoolArgs> {
       ["version", getU8Encoder()],
       ["rateMode", getU8Encoder()],
       ["riskModel", getU8Encoder()],
-      ["padding", fixEncoderSize(getBytesEncoder(), 5)],
+      ["padding", fixEncoderSize(getBytesEncoder(), 3)],
       ["spare", fixEncoderSize(getBytesEncoder(), 256)],
       ["buckets", getArrayEncoder(getMaturityBucketEncoder(), { size: 64 })],
     ]),
@@ -337,7 +337,7 @@ export function getPoolDecoder(): FixedSizeDecoder<Pool> {
     ["version", getU8Decoder()],
     ["rateMode", getU8Decoder()],
     ["riskModel", getU8Decoder()],
-    ["padding", fixDecoderSize(getBytesDecoder(), 5)],
+    ["padding", fixDecoderSize(getBytesDecoder(), 3)],
     ["spare", fixDecoderSize(getBytesDecoder(), 256)],
     ["buckets", getArrayDecoder(getMaturityBucketDecoder(), { size: 64 })],
   ]);

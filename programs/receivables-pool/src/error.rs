@@ -57,6 +57,8 @@ pub enum PoolError {
     MintedSinceSnapshot,
     #[msg("The token has overdue burn debt")]
     BurnDebtOverdue,
+    #[msg("The token's burn debt was overdue for more days in the past year than the pool allows")]
+    BurnDebtHistoryOverdue,
     #[msg("None of the token's units are eligible")]
     NoEligibleUnits,
     #[msg("More of the token's units are late than the pool allows")]

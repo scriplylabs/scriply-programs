@@ -60,6 +60,9 @@ risk_model = "v1"
 late_after_days = 30
 # Refuse a token whose late units are more than this share of outstanding.
 max_late_share_bps = 5000
+# Refuse a token whose burn debt was overdue (owed past its grace) for more
+# than this many days in the year before its snapshot: 0 refuses any.
+max_days_burn_debt_overdue = 0
 
 # How much the pool advances on the units pledged:
 #   eligible share = (current + 1-30 days + 31-60 days x weight) / outstanding

@@ -41,6 +41,11 @@ export type RiskConfig = {
   /** Refuses a borrow when more of the token's units than this are late. */
   maxLateShareBps: number;
   /**
+   * Refuses a borrow when the token's burn debt was overdue for more
+   * than this many days in the year before its snapshot.
+   */
+  maxDaysBurnDebtOverdue: number;
+  /**
    * Priced in full when the customers pay `beyond_terms_cap_days` or
    * more after the due date.
    */
@@ -69,6 +74,7 @@ export function getRiskConfigEncoder(): FixedSizeEncoder<RiskConfigArgs> {
     ["disputeSpreadBps", getU16Encoder()],
     ["lateAfterDays", getU16Encoder()],
     ["maxLateShareBps", getU16Encoder()],
+    ["maxDaysBurnDebtOverdue", getU16Encoder()],
     ["beyondTermsSpreadBps", getU16Encoder()],
     ["beyondTermsCapDays", getU16Encoder()],
     ["notOnTimeSpreadBps", getU16Encoder()],
@@ -91,6 +97,7 @@ export function getRiskConfigDecoder(): FixedSizeDecoder<RiskConfig> {
     ["disputeSpreadBps", getU16Decoder()],
     ["lateAfterDays", getU16Decoder()],
     ["maxLateShareBps", getU16Decoder()],
+    ["maxDaysBurnDebtOverdue", getU16Decoder()],
     ["beyondTermsSpreadBps", getU16Decoder()],
     ["beyondTermsCapDays", getU16Decoder()],
     ["notOnTimeSpreadBps", getU16Decoder()],

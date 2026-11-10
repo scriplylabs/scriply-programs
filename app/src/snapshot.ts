@@ -1,7 +1,9 @@
-// A token's snapshot, layout version 1 (docs/snapshot.md), and where a
+// A token's snapshot, layout version 2 (docs/snapshot.md), and where a
 // signer serves it with its proof.
 
-export const SNAPSHOT_V1_LEN = 168;
+/** The layout version the pool reads, and every later one. */
+export const SNAPSHOT_VERSION = 2;
+export const SNAPSHOT_LEN = 172;
 
 /** A snapshot's fields, as `token_snapshot::Snapshot` reads them. */
 export type Snapshot = {
@@ -26,11 +28,16 @@ export type Snapshot = {
   weightedDaysBeyondTerms: number;
   paidOnTimeShareBps: number;
   historyShareBps: number;
+  weightedDaysInBurnDebt: number;
+  daysBurnDebtOverdue: number;
 };
 
-/** The snapshot in `bytes`, or an error when it is too short or version 0. */
+/** The snapshot in `bytes`, or an error when it is too short or a version before 2. */
 export function parseSnapshot(bytes: Uint8Array): Snapshot {
-  if (bytes.length < SNAPSHOT_V1_LEN) {
+  if (bytes.length === 0 || bytes[0] < SNAPSHOT_VERSION) {
+    throw new Error(`snapshot version ${bytes[0] ?? 'missing'}: the pool reads version ${SNAPSHOT_VERSION} or later`);
+  }
+  if (bytes.length < SNAPSHOT_LEN) {
     throw new Error('snapshot too short');
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -77,6 +84,8 @@ export function parseSnapshot(bytes: Uint8Array): Snapshot {
     weightedDaysBeyondTerms: u16(),
     paidOnTimeShareBps: u16(),
     historyShareBps: u16(),
+    weightedDaysInBurnDebt: u16(),
+    daysBurnDebtOverdue: u16(),
   };
 }
 

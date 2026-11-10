@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import vectors from '../../docs/snapshot-vectors.json';
 import { fromHex, toHex } from './format';
-import { parseSnapshot, SNAPSHOT_V1_LEN } from './snapshot';
+import { parseSnapshot, SNAPSHOT_LEN } from './snapshot';
 
 describe('parseSnapshot, against docs/snapshot-vectors.json', () => {
   const first = parseSnapshot(fromHex(vectors.leaves[0].snapshot));
 
   it('reads the network and the mint', () => {
-    expect(first.version).toBe(1);
+    expect(first.version).toBe(2);
     expect(first.network).toBe('sol-devnet');
     expect(toHex(first.mint)).toBe('01'.repeat(32));
   });
@@ -23,6 +23,8 @@ describe('parseSnapshot, against docs/snapshot-vectors.json', () => {
     expect(first.concentrationIndexBps).toBe(1_001);
     expect(first.paidOnTimeShareBps).toBe(8_900);
     expect(first.historyShareBps).toBe(8_100);
+    expect(first.weightedDaysInBurnDebt).toBe(2);
+    expect(first.daysBurnDebtOverdue).toBe(1);
   });
 
   it('reads every vector', () => {
@@ -32,6 +34,14 @@ describe('parseSnapshot, against docs/snapshot-vectors.json', () => {
   });
 
   it('refuses a short snapshot', () => {
-    expect(() => parseSnapshot(new Uint8Array(SNAPSHOT_V1_LEN - 1))).toThrow();
+    const short = new Uint8Array(SNAPSHOT_LEN - 1);
+    short[0] = 2;
+    expect(() => parseSnapshot(short)).toThrow('too short');
+  });
+
+  it('refuses version 1, which lacks the burn-debt history', () => {
+    const v1 = fromHex(vectors.leaves[0].snapshot);
+    v1[0] = 1;
+    expect(() => parseSnapshot(v1)).toThrow('version 1');
   });
 });

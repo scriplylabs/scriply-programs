@@ -457,7 +457,7 @@ impl Env {
         let mut network = [0u8; 16];
         network[..10].copy_from_slice(b"sol-devnet");
         Snapshot {
-            version: 1,
+            version: 2,
             network,
             mint: self.token.to_bytes(),
             as_of: self.now - 60,
@@ -480,6 +480,8 @@ impl Env {
             weighted_days_beyond_terms: 0,
             paid_on_time_share_bps: 10_000,
             history_share_bps: 10_000,
+            weighted_days_in_burn_debt: 0,
+            days_burn_debt_overdue: 0,
         }
     }
 

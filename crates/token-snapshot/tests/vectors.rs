@@ -12,7 +12,7 @@ fn vector_snapshots() -> Vec<Snapshot> {
             let mut network = [0u8; 16];
             network[..10].copy_from_slice(b"sol-devnet");
             Snapshot {
-                version: 1,
+                version: 2,
                 network,
                 mint: [i; 32],
                 as_of: 1_800_000_000 + i as i64,
@@ -33,6 +33,8 @@ fn vector_snapshots() -> Vec<Snapshot> {
                 weighted_days_beyond_terms: i as u16,
                 paid_on_time_share_bps: 9_000 - 100 * i as u16,
                 history_share_bps: 8_000 + 100 * i as u16,
+                weighted_days_in_burn_debt: 2 * i as u16,
+                days_burn_debt_overdue: i as u16,
             }
         })
         .collect()
@@ -53,7 +55,7 @@ fn build_vectors() -> Value {
         })
         .collect();
     json!({
-        "description": "Snapshots in layout version 1, their leaves, the tree's root and each leaf's proof (siblings from the bottom up). All hex.",
+        "description": "Snapshots in layout version 2, their leaves, the tree's root and each leaf's proof (siblings from the bottom up). All hex.",
         "root": hex::encode(tree.root()),
         "leaves": leaves,
     })

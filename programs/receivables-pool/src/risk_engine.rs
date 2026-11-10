@@ -40,7 +40,9 @@ pub enum MarkOutcome {
 /// The terms for borrowing against units whose face value is `face_value`,
 /// or why the token can't be borrowed against.
 ///
-/// - Refuses while the token's burn debt is overdue, when more units than
+/// - Refuses while the token's burn debt is overdue, when it was overdue
+///   for more than `max_days_burn_debt_overdue` days in the year before the
+///   snapshot, when more units than
 ///   `max_late_share_bps` are past `late_after_days`, and when the term
 ///   (`term_seconds`) ends before the invoices are expected to be collected:
 ///   their days to due plus the days their customers pay beyond terms.
@@ -63,6 +65,10 @@ pub fn assess_borrow(
     term_seconds: u64,
 ) -> Result<BorrowTerms> {
     require!(!s.burn_debt_overdue, PoolError::BurnDebtOverdue);
+    require!(
+        s.days_burn_debt_overdue <= p.max_days_burn_debt_overdue,
+        PoolError::BurnDebtHistoryOverdue
+    );
     require!(
         late_share_bps(p, s)? <= p.max_late_share_bps,
         PoolError::TooMuchLate
@@ -231,6 +237,7 @@ mod tests {
             dispute_spread_bps: 1_000,
             late_after_days: 90,
             max_late_share_bps: 5_000,
+            max_days_burn_debt_overdue: 0,
             beyond_terms_spread_bps: 300,
             beyond_terms_cap_days: 60,
             not_on_time_spread_bps: 400,
@@ -253,6 +260,8 @@ mod tests {
             weighted_days_to_pay: 25,
             paid_on_time_share_bps: 10_000,
             history_share_bps: 10_000,
+            weighted_days_in_burn_debt: 0,
+            days_burn_debt_overdue: 0,
             ..Snapshot::default()
         }
     }
@@ -343,6 +352,22 @@ mod tests {
         assert!(assess_borrow(&params(), &s, 1_000_000_000, TERM).is_err());
         assert_eq!(assess_mark(&s), MarkOutcome::WrittenDown);
         assert_eq!(assess_mark(&clean()), MarkOutcome::Performing);
+    }
+
+    #[test]
+    fn test_burn_debt_overdue_in_the_past_year_refuses() {
+        let mut s = clean();
+        s.days_burn_debt_overdue = 1;
+        let refused = assess_borrow(&params(), &s, 1_000_000_000, TERM);
+        assert_eq!(
+            refused.unwrap_err(),
+            PoolError::BurnDebtHistoryOverdue.into()
+        );
+        let mut p = params();
+        p.max_days_burn_debt_overdue = 1;
+        assert!(assess_borrow(&p, &s, 1_000_000_000, TERM).is_ok());
+        // History refuses new loans; it doesn't write down open ones.
+        assert_eq!(assess_mark(&s), MarkOutcome::Performing);
     }
 
     #[test]

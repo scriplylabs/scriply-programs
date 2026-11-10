@@ -1,14 +1,17 @@
-/// The bytes of layout version 1. A later version only appends fields, so a
-/// program reads the first SNAPSHOT_V1_LEN bytes of any version and ignores
+/// The layout version this crate reads, and every later one.
+pub const SNAPSHOT_VERSION: u8 = 2;
+
+/// The bytes of layout version 2. A later version only appends fields, so a
+/// program reads the first SNAPSHOT_LEN bytes of any version and ignores
 /// the rest; the signature, or the Merkle leaf, covers all of them.
-pub const SNAPSHOT_V1_LEN: usize = 168;
+pub const SNAPSHOT_LEN: usize = 172;
 
 /// Why bytes aren't a snapshot this crate can read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SnapshotError {
-    /// Fewer than SNAPSHOT_V1_LEN bytes.
+    /// Fewer than SNAPSHOT_LEN bytes.
     TooShort,
-    /// Version 0, which no layout has.
+    /// A version before SNAPSHOT_VERSION, which lacks fields this crate reads.
     UnsupportedVersion,
 }
 
@@ -51,23 +54,32 @@ pub struct Snapshot {
     /// Share of units owed by customers with a payment history the three
     /// fields above are drawn from, bps.
     pub history_share_bps: u16,
+    /// Days a unit owed for burning stayed owed before the org delivered it,
+    /// averaged by units, over the 365 days before `as_of`; debt still owed
+    /// counts up to `as_of`. Version 2.
+    pub weighted_days_in_burn_debt: u16,
+    /// Days in the 365 before `as_of` the token's burn debt was overdue:
+    /// owed past its grace. Version 2.
+    pub days_burn_debt_overdue: u16,
 }
 
 impl Snapshot {
-    /// Parses a snapshot in layout version 1 or later, or says why it can't.
+    /// Parses a snapshot in layout version 2 or later, or says why it can't.
     ///
     /// ```ignore
-    /// let s = Snapshot::parse(&bytes)?; // reads the first 168 bytes
+    /// let s = Snapshot::parse(&bytes)?; // reads the first 172 bytes
     /// ```
     pub fn parse(bytes: &[u8]) -> Result<Self, SnapshotError> {
-        if bytes.len() < SNAPSHOT_V1_LEN {
+        let Some(&version) = bytes.first() else {
             return Err(SnapshotError::TooShort);
-        }
-        let mut r = Reader { bytes, at: 0 };
-        let version = r.u8();
-        if version == 0 {
+        };
+        if version < SNAPSHOT_VERSION {
             return Err(SnapshotError::UnsupportedVersion);
         }
+        if bytes.len() < SNAPSHOT_LEN {
+            return Err(SnapshotError::TooShort);
+        }
+        let mut r = Reader { bytes, at: 1 };
         Ok(Self {
             version,
             network: r.array(),
@@ -90,12 +102,14 @@ impl Snapshot {
             weighted_days_beyond_terms: r.u16(),
             paid_on_time_share_bps: r.u16(),
             history_share_bps: r.u16(),
+            weighted_days_in_burn_debt: r.u16(),
+            days_burn_debt_overdue: r.u16(),
         })
     }
 
-    /// The snapshot in layout version 1, for signers, keepers and tests.
+    /// The snapshot in layout version 2, for signers, keepers and tests.
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut b = Vec::with_capacity(SNAPSHOT_V1_LEN);
+        let mut b = Vec::with_capacity(SNAPSHOT_LEN);
         b.push(self.version);
         b.extend_from_slice(&self.network);
         b.extend_from_slice(&self.mint);
@@ -122,6 +136,8 @@ impl Snapshot {
             self.weighted_days_beyond_terms,
             self.paid_on_time_share_bps,
             self.history_share_bps,
+            self.weighted_days_in_burn_debt,
+            self.days_burn_debt_overdue,
         ] {
             b.extend_from_slice(&v.to_le_bytes());
         }
@@ -164,7 +180,7 @@ mod tests {
         let mut network = [0u8; 16];
         network[..10].copy_from_slice(b"sol-devnet");
         Snapshot {
-            version: 1,
+            version: 2,
             network,
             mint: [9; 32],
             as_of: 1_800_000_000,
@@ -185,6 +201,8 @@ mod tests {
             weighted_days_beyond_terms: 8,
             paid_on_time_share_bps: 7_200,
             history_share_bps: 9_100,
+            weighted_days_in_burn_debt: 4,
+            days_burn_debt_overdue: 11,
         }
     }
 
@@ -192,7 +210,7 @@ mod tests {
     fn test_layout_round_trips() {
         let s = sample();
         let bytes = s.to_bytes();
-        assert_eq!(bytes.len(), SNAPSHOT_V1_LEN);
+        assert_eq!(bytes.len(), SNAPSHOT_LEN);
         assert_eq!(Snapshot::parse(&bytes).unwrap(), s);
     }
 
@@ -202,7 +220,7 @@ mod tests {
     fn test_layout_offsets_are_pinned() {
         let s = sample();
         let b = s.to_bytes();
-        assert_eq!(b[0], 1);
+        assert_eq!(b[0], 2);
         assert_eq!(&b[1..17], &s.network);
         assert_eq!(&b[17..49], &s.mint);
         assert_eq!(&b[49..57], &s.as_of.to_le_bytes());
@@ -221,12 +239,14 @@ mod tests {
         assert_eq!(&b[162..164], &s.weighted_days_beyond_terms.to_le_bytes());
         assert_eq!(&b[164..166], &s.paid_on_time_share_bps.to_le_bytes());
         assert_eq!(&b[166..168], &s.history_share_bps.to_le_bytes());
+        assert_eq!(&b[168..170], &s.weighted_days_in_burn_debt.to_le_bytes());
+        assert_eq!(&b[170..172], &s.days_burn_debt_overdue.to_le_bytes());
     }
 
     #[test]
     fn test_a_later_version_is_read_by_its_prefix() {
         let mut s = sample();
-        s.version = 2;
+        s.version = 3;
         let mut bytes = s.to_bytes();
         bytes.extend_from_slice(&[1, 2, 3, 4]);
         assert_eq!(Snapshot::parse(&bytes).unwrap(), s);
@@ -236,18 +256,20 @@ mod tests {
     fn test_a_short_snapshot_is_refused() {
         let bytes = sample().to_bytes();
         assert_eq!(
-            Snapshot::parse(&bytes[..SNAPSHOT_V1_LEN - 1]),
+            Snapshot::parse(&bytes[..SNAPSHOT_LEN - 1]),
             Err(SnapshotError::TooShort)
         );
     }
 
     #[test]
-    fn test_version_zero_is_refused() {
-        let mut bytes = sample().to_bytes();
-        bytes[0] = 0;
-        assert_eq!(
-            Snapshot::parse(&bytes),
-            Err(SnapshotError::UnsupportedVersion)
-        );
+    fn test_a_version_before_2_is_refused() {
+        for version in [0, 1] {
+            let mut bytes = sample().to_bytes();
+            bytes[0] = version;
+            assert_eq!(
+                Snapshot::parse(&bytes),
+                Err(SnapshotError::UnsupportedVersion)
+            );
+        }
     }
 }

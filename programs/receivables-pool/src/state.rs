@@ -62,6 +62,9 @@ pub struct RiskParams {
     pub late_after_days: u16,
     /// Refuses a borrow when more of the token's units than this are late.
     pub max_late_share_bps: u16,
+    /// Refuses a borrow when the token's burn debt was overdue for more
+    /// than this many days in the year before its snapshot.
+    pub max_days_burn_debt_overdue: u16,
     /// Priced in full when the customers pay `beyond_terms_cap_days` or
     /// more after the due date.
     pub beyond_terms_spread_bps: u16,
@@ -190,7 +193,7 @@ pub struct Pool {
     pub rate_mode: u8,
     /// A RiskModel.
     pub risk_model: u8,
-    pub padding: [u8; 5],
+    pub padding: [u8; 3],
     /// Room for fields a later layout version adds without moving any.
     pub spare: [u8; 256],
     pub buckets: [MaturityBucket; BUCKETS],
@@ -239,6 +242,9 @@ pub struct RiskConfig {
     pub late_after_days: u16,
     /// Refuses a borrow when more of the token's units than this are late.
     pub max_late_share_bps: u16,
+    /// Refuses a borrow when the token's burn debt was overdue for more
+    /// than this many days in the year before its snapshot.
+    pub max_days_burn_debt_overdue: u16,
     /// Priced in full when the customers pay `beyond_terms_cap_days` or
     /// more after the due date.
     pub beyond_terms_spread_bps: u16,
@@ -265,6 +271,7 @@ impl From<RiskConfig> for RiskParams {
             dispute_spread_bps: c.dispute_spread_bps,
             late_after_days: c.late_after_days,
             max_late_share_bps: c.max_late_share_bps,
+            max_days_burn_debt_overdue: c.max_days_burn_debt_overdue,
             beyond_terms_spread_bps: c.beyond_terms_spread_bps,
             beyond_terms_cap_days: c.beyond_terms_cap_days,
             not_on_time_spread_bps: c.not_on_time_spread_bps,

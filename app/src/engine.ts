@@ -177,7 +177,7 @@ export type BorrowTerms = {
 };
 
 /** Why the risk engine refuses a borrow, named as `PoolError` names it. */
-export type BorrowRefusal = 'BurnDebtOverdue' | 'TooMuchLate' | 'TermTooShort' | 'NoEligibleUnits';
+export type BorrowRefusal = 'BurnDebtOverdue' | 'BurnDebtHistoryOverdue' | 'TooMuchLate' | 'TermTooShort' | 'NoEligibleUnits';
 
 /** `risk_engine::share_bps`: part / whole in bps, at most 10000. */
 function shareBps(part: bigint, whole: bigint): bigint {
@@ -268,6 +268,9 @@ export function assessBorrow(
   if (s.burnDebtOverdue) {
     return { refusal: 'BurnDebtOverdue' };
   }
+  if (s.daysBurnDebtOverdue > p.maxDaysBurnDebtOverdue) {
+    return { refusal: 'BurnDebtHistoryOverdue' };
+  }
   if (lateShareBps(p, s) > BigInt(p.maxLateShareBps)) {
     return { refusal: 'TooMuchLate' };
   }
@@ -294,6 +297,7 @@ export function assessBorrow(
 /** What a refusal means, for the borrower. */
 export const borrowRefusals: Record<BorrowRefusal, string> = {
   BurnDebtOverdue: "The token's burn debt is overdue, so this pool won't lend against it.",
+  BurnDebtHistoryOverdue: "The token's burn debt was overdue for more days in the past year than this pool allows.",
   TooMuchLate: 'Too many of the units are backed by late invoices for this pool.',
   TermTooShort: 'The term ends before the invoices are expected to be collected. Choose a longer one.',
   NoEligibleUnits: 'None of the units count: they are too far past due or disputed.',

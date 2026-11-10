@@ -104,6 +104,8 @@ function Facts({ pool, mint, signer, now }: { pool: PoolAt; mint: Address; signe
         <Stat label="Disputed" value={formatBps(s.disputedShareBps)} />
         <Stat label="Days to due" value={s.weightedDaysToDue} hint="weighted by units" />
         <Stat label="Burn debt" value={s.burnDebtOverdue ? 'Overdue' : formatAmount(s.burnDebt, d, 0)} />
+        <Stat label="Days in burn debt" value={s.weightedDaysInBurnDebt} hint="past year, weighted by units" />
+        <Stat label="Days burn debt overdue" value={s.daysBurnDebtOverdue} hint="past year" />
       </div>
       {isRootTooOld && <p className="error">The latest root is older than this pool reads ({formatDuration(p.maxRootAge)}). It lends again once the signer posts a newer one.</p>}
       {isMintedSince && <p className="error">Units were minted after this snapshot. The pool lends again once the next root covers them.</p>}

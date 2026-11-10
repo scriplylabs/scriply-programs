@@ -349,10 +349,22 @@ fn test_borrowing_is_refused_without_good_facts() {
     let proven = env.post_with(s);
     attempt(&mut env, proven, 1_000 * UNIT, 100 * USDC, 4, "WrongMint");
 
-    // 61-90 days past due counts for nothing, but isn't late until 90.
+    // Overdue burn debt any day of the past year refuses the token too.
     let mut s = env.snapshot();
-    s.aging_current = 0;
-    s.aging_days_61_to_90 = s.outstanding_units;
+    s.days_burn_debt_overdue = 3;
+    let proven = env.post_with(s);
+    attempt(
+        &mut env,
+        proven,
+        1_000 * UNIT,
+        100 * USDC,
+        4,
+        "BurnDebtHistoryOverdue",
+    );
+
+    // Every unit disputed: nothing counts.
+    let mut s = env.snapshot();
+    s.disputed_share_bps = 10_000;
     let proven = env.post_with(s);
     attempt(
         &mut env,
