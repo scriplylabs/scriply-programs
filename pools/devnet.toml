@@ -10,10 +10,9 @@ version = 1
 network = "sol-devnet"
 
 # The keys whose roots, posted to the snapshot-roots program, the pool reads
-# tokens' facts from (1 to 8). The system program's address is a key nobody
-# holds, so a pool created from this file as it stands can never lend:
-# replace it with Scriply's devnet signer.
-signers = ["11111111111111111111111111111111"]
+# tokens' facts from (1 to 8): Scriply's devnet signer, which posts a root
+# daily.
+signers = ["HhpwUwU6TFgzqzNuKhZcAuMuUMdKKge7Um385nT4Jcyu"]
 
 [epochs]
 # How long an epoch lasts. Withdrawals are paid at an epoch's start, once
