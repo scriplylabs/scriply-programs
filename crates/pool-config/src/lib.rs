@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_a_bad_signer_is_refused() {
-        let text = DEVNET.replace("11111111111111111111111111111111", "nope");
+        let text = DEVNET.replace("HhpwUwU6TFgzqzNuKhZcAuMuUMdKKge7Um385nT4Jcyu", "nope");
         assert!(matches!(parse(&text), Err(ConfigError::InvalidKey(_))));
     }
 }

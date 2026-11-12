@@ -1,0 +1,111 @@
+# The devnet pool for trying the app end to end: devnet.toml with 4-day
+# epochs, so withdrawals, marking and impairment come round within days.
+# Nothing changes a pool's parameters once it exists: a different pool is a
+# new file. The integration tests run against devnet.toml, not this one.
+#
+# Shares and rates are in basis points (bps): 10000 is 100%.
+version = 1
+
+# The network the pool lends on, as snapshots name it.
+network = "sol-devnet"
+
+# The keys whose roots, posted to the snapshot-roots program, the pool reads
+# tokens' facts from (1 to 8): Scriply's devnet signer, which posts a root
+# daily.
+signers = ["HhpwUwU6TFgzqzNuKhZcAuMuUMdKKge7Um385nT4Jcyu"]
+
+[epochs]
+# How long an epoch lasts. Withdrawals are paid at an epoch's start, once
+# every loan has been marked from its token's latest facts.
+seconds = 345600 # four days
+# How long into an epoch keepers have to mark every loan. After it, anyone
+# may mark a loan whose token couldn't be read as stale, and NAV counts it
+# at `impaired_share_bps` until a fresh mark.
+mark_window_seconds = 86400 # one day
+# The loan terms offered, in epochs (1 to 8 of them).
+maturities = [8, 15] # 32 and 60 days
+# Whole epochs after maturity before an unpaid loan is impaired. The
+# longest maturity plus grace must be under 64.
+grace = 2
+
+[facts]
+# The oldest root the pool reads, in seconds since the facts under it were
+# true. A root is posted daily, so this covers a missed day.
+max_root_age_seconds = 172800 # two days
+
+[loans]
+# The most the pool lends against one token, across its borrowers, as a
+# share of NAV.
+cap_per_token_bps = 5000
+# What NAV counts for an impaired loan, as a share of what it owed. 0 is
+# safest for depositors who stay; a share near what recoveries return is
+# fairer to those who leave.
+impaired_share_bps = 0
+# Added to a loan's rate once it is past maturity.
+late_spread_bps = 300
+# "fixed": the risk engine sets a loan's rate when it opens, and it never
+# changes. "variable" is declared but not built yet.
+rate_mode = "fixed"
+# The risk engine's formula (programs/receivables-pool/src/risk_engine.rs).
+risk_model = "v1"
+
+# When the pool refuses a token, besides overdue burn debt and a term that
+# ends before the invoices are expected to be collected (their days to due
+# plus the days their customers pay beyond terms).
+[risk.reject]
+# Units are late once more than this many days past due: 30, 60 or 90.
+# A token whose invoices' units burn at 60 days past due always reports
+# empty 61-90 and over-90 buckets, so only 30 ever refuses it.
+late_after_days = 30
+# Refuse a token whose late units are more than this share of outstanding.
+max_late_share_bps = 5000
+# Refuse a token whose burn debt was overdue (owed past its grace) for more
+# than this many days in the year before its snapshot: 0 refuses any.
+max_days_burn_debt_overdue = 0
+
+# How much the pool advances on the units pledged:
+#   eligible share = (current + 1-30 days + 31-60 days x weight) / outstanding
+#                    - disputed share
+#   advance rate   = base - penalty as concentration rises past the
+#                    threshold, at most max
+#   advance        = units x face value x eligible share x advance rate
+[risk.advance]
+base_bps = 8000
+# The ceiling. 10000 advances at face value.
+max_bps = 9000
+# How much units 31-60 days past due count; older units count for nothing.
+weight_31_to_60_bps = 5000
+# Concentration (the Herfindahl-Hirschman index of the token's customers,
+# 0-10000) above which the advance falls and the rate rises.
+concentration_threshold_bps = 2500
+# Taken off the advance, in full at an index of 10000.
+concentration_penalty_bps = 2000
+
+# The yearly rate, fixed when a loan opens:
+#   rate = base + past-due spread x share past due
+#               + concentration spread x how far past the threshold
+#               + dispute spread x share disputed
+#               + on the share of units whose customers have a payment
+#                 history: beyond-terms spread x days beyond terms / cap
+#                 + not-on-time spread x share not paid on time
+#               + no-history spread x share without a history
+#   kept within min and max. Until Scriply vouches payment history from the
+#   bank, snapshots carry no history, so every loan pays the no-history
+#   spread.
+[risk.rate]
+base_bps = 1200
+min_bps = 500
+max_bps = 1500
+past_due_spread_bps = 600
+concentration_spread_bps = 400
+dispute_spread_bps = 1000
+beyond_terms_spread_bps = 300
+# Days beyond terms at which the beyond-terms spread is charged in full.
+beyond_terms_cap_days = 60
+not_on_time_spread_bps = 300
+no_history_spread_bps = 200
+
+[depositors]
+# The SAS credential and schema a depositor's wallet must hold an
+# attestation of. Leave out for anyone to deposit.
+# attestation = { credential = "...", schema = "..." }
