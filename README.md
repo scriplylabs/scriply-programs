@@ -8,6 +8,8 @@ A lending pool with no admin. Anyone creates a pool with fixed parameters, inclu
 
 `pools/devnet.toml` lists every parameter with what it decides, and `create-pool` (`cli/`) creates a pool from it.
 
+`docs/receivables-pool-design.md` explains how it decides and why. Scriply posts the facts; this program is one way to use them, and anyone may deploy, fork or replace it.
+
 ### Instructions
 
 | Instruction | Who | What |
