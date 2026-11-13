@@ -218,6 +218,20 @@ pub struct Listing {
     pub paid: u64,
 }
 
+/// That a commitment was claimed, at `[CLAIMED_SEED, commitment]`: one per
+/// program, so a bill's leaf pays its supplier once, whichever pool or
+/// wallet lists it and however often. A claim reveals the salt, after which
+/// anyone could list the leaf again and replay the supplier's claim.
+#[account]
+#[derive(InitSpace)]
+pub struct ClaimRecord {
+    pub version: u8,
+    pub bump: u8,
+    /// The listing the claim paid.
+    pub listing: Pubkey,
+    pub claimed_at: i64,
+}
+
 /// `a * b / c`, rounded down.
 pub fn mul_div(a: u64, b: u64, c: u64) -> Result<u64> {
     require!(c > 0, SupplierPoolError::MathOverflow);

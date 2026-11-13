@@ -32,7 +32,7 @@ use {
     solana_signer::Signer,
     solana_transaction::versioned::VersionedTransaction,
     supplier_pool::{
-        claim_signature::claim_message, facts::ProvenLeaf, state::*, ANCHOR_SEED,
+        claim_signature::claim_message, facts::ProvenLeaf, state::*, ANCHOR_SEED, CLAIMED_SEED,
         ED25519_PROGRAM_ID, LISTING_SEED, POOL_SEED, SHARES_SEED,
     },
 };
@@ -492,6 +492,20 @@ impl Env {
         Instruction::new_with_bytes(ED25519_PROGRAM_ID, &data, vec![])
     }
 
+    /// The claim record of the listing's commitment, or of the supplier's
+    /// and salt's when the listing is gone.
+    pub fn claim_record_of(&self, listing: &Pubkey, supplier: &Pubkey, salt: [u8; 32]) -> Pubkey {
+        let commitment = match self.svm.get_account(listing) {
+            Some(a) if !a.data.is_empty() => {
+                Listing::try_deserialize(&mut a.data.as_slice())
+                    .unwrap()
+                    .commitment
+            }
+            _ => hashv(&[supplier.as_ref(), &salt]).to_bytes(),
+        };
+        pda(&[CLAIMED_SEED, &commitment])
+    }
+
     pub fn claim_ix(&self, listing: &Pubkey, supplier: &Pubkey, salt: [u8; 32]) -> Instruction {
         Instruction::new_with_bytes(
             supplier_pool::id(),
@@ -500,6 +514,7 @@ impl Env {
                 fee_payer: self.fee_payer.pubkey(),
                 pool: self.pool,
                 listing: *listing,
+                claim_record: self.claim_record_of(listing, supplier, salt),
                 supplier: *supplier,
                 supplier_tokens: ata(supplier, &self.usdc, &spl_token::ID),
                 mint: self.usdc,

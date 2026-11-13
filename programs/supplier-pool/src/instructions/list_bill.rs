@@ -97,9 +97,12 @@ pub fn handle_list_bill(
         .ok_or(SupplierPoolError::MathOverflow)?;
     require!(owed <= pool.anchor_cap()?, SupplierPoolError::OverAnchorCap);
 
-    // The deposit pays a claim's network fee and the supplier's token
-    // account if it has none, whoever submits the claim.
-    let fee_deposit = CLAIM_NETWORK_FEE_LAMPORTS + Rent::get()?.minimum_balance(TOKEN_ACCOUNT_LEN);
+    // The deposit pays a claim's network fee, its claim record and the
+    // supplier's token account if it has none, whoever submits the claim.
+    let rent = Rent::get()?;
+    let fee_deposit = CLAIM_NETWORK_FEE_LAMPORTS
+        + rent.minimum_balance(8 + ClaimRecord::INIT_SPACE)
+        + rent.minimum_balance(TOKEN_ACCOUNT_LEN);
     system_program::transfer(
         CpiContext::new(
             ctx.accounts.system_program.key(),

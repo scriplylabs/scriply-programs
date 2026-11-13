@@ -29,6 +29,15 @@ pub struct Claim<'info> {
         has_one = pool,
     )]
     pub listing: Box<Account<'info, Listing>>,
+    /// Created here, so a commitment already claimed anywhere is refused.
+    #[account(
+        init,
+        payer = fee_payer,
+        space = 8 + ClaimRecord::INIT_SPACE,
+        seeds = [CLAIMED_SEED, &listing.commitment],
+        bump
+    )]
+    pub claim_record: Box<Account<'info, ClaimRecord>>,
     /// CHECK: the address the listing commits to, proven by the salt and by
     /// the ed25519 check of its signature, both in the handler.
     pub supplier: UncheckedAccount<'info>,
@@ -55,7 +64,9 @@ pub struct Claim<'info> {
 
 /// Pays the supplier who signed the claim message and whose address and
 /// `salt` are the listing's commitment: the amount less the pool's fee for
-/// the days left to the due date. Refunds the fee payer from the deposit.
+/// the days left to the due date. Refunds the fee payer from the deposit,
+/// and records the commitment claimed, which refuses every later claim on
+/// it.
 pub fn handle_claim(ctx: Context<Claim>, salt: [u8; 32]) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let listing_key = ctx.accounts.listing.key();
@@ -87,7 +98,8 @@ pub fn handle_claim(ctx: Context<Claim>, salt: [u8; 32]) -> Result<()> {
     let paid = amount - fee;
     require!(paid <= ctx.accounts.pool.idle, SupplierPoolError::PoolShort);
 
-    let mut refund = CLAIM_NETWORK_FEE_LAMPORTS;
+    let mut refund =
+        CLAIM_NETWORK_FEE_LAMPORTS + Rent::get()?.minimum_balance(8 + ClaimRecord::INIT_SPACE);
     let a = &ctx.accounts;
     if a.supplier_tokens.data_is_empty() {
         associated_token::create(CpiContext::new(
@@ -118,6 +130,12 @@ pub fn handle_claim(ctx: Context<Claim>, salt: [u8; 32]) -> Result<()> {
     let refund = refund.min(a.listing.fee_deposit);
     a.listing.sub_lamports(refund)?;
     a.fee_payer.add_lamports(refund)?;
+
+    let record = &mut ctx.accounts.claim_record;
+    record.version = ACCOUNT_VERSION;
+    record.bump = ctx.bumps.claim_record;
+    record.listing = listing_key;
+    record.claimed_at = now;
 
     let listing = &mut ctx.accounts.listing;
     listing.fee_deposit -= refund;

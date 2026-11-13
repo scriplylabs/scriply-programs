@@ -44,7 +44,7 @@ fn test_a_bill_is_listed_claimed_and_repaid() {
     let rent = env.svm.minimum_balance_for_rent_exemption(165);
     assert_eq!(
         l.fee_deposit, 0,
-        "deposit {CLAIM_NETWORK_FEE_LAMPORTS} + {rent} all refunded"
+        "deposit {CLAIM_NETWORK_FEE_LAMPORTS} + {rent} + the claim record's rent all refunded"
     );
 
     let anchor = env.anchor.insecure_clone();
@@ -159,10 +159,48 @@ fn test_a_claim_twice_is_refused() {
     let bill = env.bill(10_000);
     let listing = env.list(&bill);
     env.claim(&listing, &bill).unwrap();
-    match env.claim(&listing, &bill) {
-        Ok(_) => panic!("a second claim succeeded"),
-        Err(e) => assert!(e.meta.logs.join("\n").contains("AlreadyClaimed")),
-    }
+    // Refused by the commitment's claim record, before the listing's own
+    // flag is read.
+    assert!(
+        env.claim(&listing, &bill).is_err(),
+        "a second claim succeeded"
+    );
+    assert_eq!(env.usdc_balance(&env.supplier.pubkey()), 9_850 * USDC);
+}
+
+#[test]
+fn test_a_claimed_leaf_listed_by_another_wallet_pays_nothing_again() {
+    let mut env = Env::new();
+    env.deposit(100_000 * USDC);
+    let bill = env.bill(10_000);
+    let listing = env.list(&bill);
+    env.claim(&listing, &bill).unwrap();
+    // The claim revealed the salt; the leaf is still in the latest root.
+    let proven = env.post_bill(&bill);
+    let stranger = env.wallet();
+    let ix = env.list_ix(&stranger.pubkey(), bill.commitment, proven);
+    env.send(&[ix], &[&stranger]).unwrap();
+    let theirs = env.listing_of(&stranger.pubkey(), &bill.commitment);
+    assert!(env.claim(&theirs, &bill).is_err(), "a replayed claim paid");
+    assert_eq!(env.usdc_balance(&env.supplier.pubkey()), 9_850 * USDC);
+}
+
+#[test]
+fn test_a_repaid_leaf_listed_again_pays_nothing_again() {
+    let mut env = Env::new();
+    env.deposit(100_000 * USDC);
+    let bill = env.bill(10_000);
+    let listing = env.list(&bill);
+    env.claim(&listing, &bill).unwrap();
+    let anchor = env.anchor.insecure_clone();
+    env.fund_usdc(&anchor.pubkey(), 10_000 * USDC);
+    let ix = env.repay_ix(&anchor.pubkey(), &listing);
+    env.send(&[ix], &[&anchor]).unwrap();
+    // Listed again at the same address, the old signature and salt replayed.
+    let again = env.list(&bill);
+    assert_eq!(again, listing);
+    assert!(env.claim(&again, &bill).is_err(), "a replayed claim paid");
+    assert_eq!(env.usdc_balance(&env.supplier.pubkey()), 9_850 * USDC);
 }
 
 #[test]

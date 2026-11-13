@@ -4,6 +4,7 @@ pub const POOL_SEED: &[u8] = b"pool";
 pub const SHARES_SEED: &[u8] = b"shares";
 pub const ANCHOR_SEED: &[u8] = b"anchor";
 pub const LISTING_SEED: &[u8] = b"listing";
+pub const CLAIMED_SEED: &[u8] = b"claimed";
 
 /// The layout version this program writes in every account it owns. A
 /// later program reading an account checks it before trusting the layout.
