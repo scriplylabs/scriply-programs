@@ -1,6 +1,6 @@
 # Bill leaf, layout version 1
 
-A bill leaf is a set of facts about one bill an anchor offered for early payment, once an operator has reviewed it against its documents and approved it. The signer puts one in its daily tree for each approved offer, from the root after the approval until the offer is cancelled or repaid, beside the tokens' snapshots (`snapshot.md`), and posts the tree's root to `snapshot-roots` as it always does. A supplier pool checks a listing against it, so what the pool lends on is what the signer verified, not the anchor's word.
+A bill leaf is a set of facts about one bill an anchor offered for early payment, once an operator has reviewed it against its documents and approved it. The signer puts one in its daily tree for each approved offer, from the root after the approval until the pool pays the supplier or the offer is withdrawn, and only while the bill still backs the offer and is due no later than `repayOn`, beside the tokens' snapshots (`snapshot.md`), and posts the tree's root to `snapshot-roots` as it always does. A supplier pool checks a listing against it, so what the pool lends on is what the signer verified, not the anchor's word.
 
 Nothing in it names the anchor, the vendor or the bill: the vendor's address is behind `commitment`, and the vendor's history with the anchor is in bands, which many vendors share.
 
