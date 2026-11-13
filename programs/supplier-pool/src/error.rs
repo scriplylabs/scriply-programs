@@ -9,7 +9,7 @@ pub enum SupplierPoolError {
     TooManyAnchors,
     #[msg("A fee must be at most 10000 bps, and a per-day fee's base at most its maximum")]
     InvalidFee,
-    #[msg("The cap per anchor must be between 1 and 10000 bps")]
+    #[msg("The most an anchor may owe must be above zero")]
     InvalidCap,
     #[msg("The oldest root must be at least one second, and the longest term at least a day")]
     InvalidAge,
@@ -51,7 +51,7 @@ pub enum SupplierPoolError {
     TermTooLong,
     #[msg("The bill's repayment date has passed")]
     RepaymentDatePassed,
-    #[msg("The anchor's open listings would pass the pool's cap per anchor")]
+    #[msg("The anchor's open listings would pass the most the pool lets one anchor owe")]
     OverAnchorCap,
 
     // A claim

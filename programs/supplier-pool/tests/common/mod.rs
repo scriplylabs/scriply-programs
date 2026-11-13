@@ -64,7 +64,7 @@ pub fn demo_params(signer: Pubkey) -> PoolParams {
             max_term_days: 120,
         },
         max_root_age: 2 * DAY as u32,
-        cap_per_anchor_bps: 5_000,
+        max_owed_per_anchor: 15_000 * USDC,
     }
 }
 

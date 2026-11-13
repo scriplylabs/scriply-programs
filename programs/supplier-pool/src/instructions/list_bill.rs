@@ -95,7 +95,10 @@ pub fn handle_list_bill(
         .owed
         .checked_add(amount)
         .ok_or(SupplierPoolError::MathOverflow)?;
-    require!(owed <= pool.anchor_cap()?, SupplierPoolError::OverAnchorCap);
+    require!(
+        owed <= pool.max_owed_per_anchor,
+        SupplierPoolError::OverAnchorCap
+    );
 
     // The deposit pays a claim's network fee, its claim record and the
     // supplier's token account if it has none, whoever submits the claim.

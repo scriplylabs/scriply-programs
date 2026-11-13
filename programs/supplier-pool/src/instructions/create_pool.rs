@@ -63,7 +63,7 @@ pub fn handle_create_pool(ctx: Context<CreatePool>, params: PoolParams) -> Resul
     pool.fee = params.fee;
     pool.rules = params.rules;
     pool.max_root_age = params.max_root_age;
-    pool.cap_per_anchor_bps = params.cap_per_anchor_bps;
+    pool.max_owed_per_anchor = params.max_owed_per_anchor;
     pool.idle = 0;
     pool.outstanding = 0;
     pool.listed = 0;
@@ -87,7 +87,7 @@ fn validate(params: &PoolParams, decimals: u8) -> Result<()> {
     );
     require!(params.fee.is_valid(), SupplierPoolError::InvalidFee);
     require!(
-        (1..=BPS as u16).contains(&params.cap_per_anchor_bps),
+        params.max_owed_per_anchor > 0,
         SupplierPoolError::InvalidCap
     );
     require!(

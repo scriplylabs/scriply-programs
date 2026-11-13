@@ -82,9 +82,11 @@ pub struct PoolParams {
     pub rules: BillRules,
     /// The oldest root it reads, in seconds before now.
     pub max_root_age: u32,
-    /// The most one anchor's open listings may be, as a share of what the
-    /// pool holds; 10000 lets one anchor take the whole pool.
-    pub cap_per_anchor_bps: u16,
+    /// The most one anchor's wallet may owe the pool across its open
+    /// listings, in the token's base units. A fixed amount, not a share of
+    /// what the pool holds, so a deposit made for a listing and withdrawn
+    /// after it can't raise it.
+    pub max_owed_per_anchor: u64,
 }
 
 /// A pool at `[POOL_SEED, creator, mint]`. Its vault is its own associated
@@ -108,7 +110,7 @@ pub struct Pool {
     pub fee: FeeSchedule,
     pub rules: BillRules,
     pub max_root_age: u32,
-    pub cap_per_anchor_bps: u16,
+    pub max_owed_per_anchor: u64,
     /// The token in the vault that the pool counts: deposits and
     /// repayments in, claims and withdrawals out. Tokens sent to the vault
     /// any other way are not counted.
@@ -155,11 +157,6 @@ impl Pool {
             self.nav()?.saturating_add(VIRTUAL_ASSETS),
             supply.saturating_add(VIRTUAL_SHARES),
         )
-    }
-
-    /// The most one anchor's open listings may add up to now.
-    pub fn anchor_cap(&self) -> Result<u64> {
-        mul_div(self.nav()?, self.cap_per_anchor_bps as u64, BPS)
     }
 
     /// A bill leaf's amount, in millionths of the currency, in the token's
@@ -283,7 +280,7 @@ mod tests {
                 max_term_days: 1,
             },
             max_root_age: 1,
-            cap_per_anchor_bps: 10_000,
+            max_owed_per_anchor: u64::MAX,
             idle: 0,
             outstanding: 0,
             listed: 0,

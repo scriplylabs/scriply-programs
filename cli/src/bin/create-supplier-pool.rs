@@ -65,7 +65,7 @@ struct Config {
     signers: Vec<String>,
     anchors: Vec<String>,
     max_root_age_seconds: u32,
-    cap_per_anchor_bps: u16,
+    max_owed_per_anchor: u64,
     fee: FeeConfig,
     rules: RulesConfig,
 }
@@ -138,7 +138,7 @@ fn load_params(path: &PathBuf) -> Result<PoolParams, String> {
             max_term_days: c.rules.max_term_days,
         },
         max_root_age: c.max_root_age_seconds,
-        cap_per_anchor_bps: c.cap_per_anchor_bps,
+        max_owed_per_anchor: c.max_owed_per_anchor,
     })
 }
 

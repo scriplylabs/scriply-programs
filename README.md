@@ -51,7 +51,7 @@ A lending pool with no admin. Anyone creates a pool with fixed parameters, inclu
 
 ## supplier-pool
 
-A pool with no admin that pays an anchor's suppliers early on bills a signer attested, and is repaid in full by the anchor on a later date (reverse factoring). Anyone creates one with fixed parameters: its token, its fee (flat, or growing with the days to repayment), whose roots it reads bills' facts from, the anchors it takes (any, or the wallets it names), its rules over each bill's facts (which documents were verified, the vendor's history with the anchor in bands, the longest term) and a cap per anchor. `docs/supplier-pool-design.md` explains how it decides; `docs/bill-leaf.md` is the bill leaf's layout; `pools/supplier-devnet.toml` lists every parameter, and `create-supplier-pool` (`cli/`) creates a pool from it.
+A pool with no admin that pays an anchor's suppliers early on bills a signer attested, and is repaid in full by the anchor on a later date (reverse factoring). Anyone creates one with fixed parameters: its token, its fee (flat, or growing with the days to repayment), whose roots it reads bills' facts from, the anchors it takes (any, or the wallets it names), its rules over each bill's facts (which documents were verified, the vendor's history with the anchor in bands, the longest term) and the most one anchor may owe it. `docs/supplier-pool-design.md` explains how it decides; `docs/bill-leaf.md` is the bill leaf's layout; `pools/supplier-devnet.toml` lists every parameter, and `create-supplier-pool` (`cli/`) creates a pool from it.
 
 | Instruction | Who | What |
 |---|---|---|

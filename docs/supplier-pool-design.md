@@ -13,7 +13,7 @@ A pool is one token's money, lent to the suppliers of the anchors whose bills it
 | Anchors | Any anchor, or only the wallets it names |
 | Signers | Whose roots it reads the anchors' and bills' facts from |
 | Rules | What it refuses, by its own thresholds on the facts in the bill's leaf (which documents were verified, the vendor's history in bands, how far off the repayment date is), and how old a root it takes. Rules on the ratios in the anchor's business leaf come with that leaf: this version reads no business leaf |
-| Cap per anchor | The most one anchor's open listings may be, as a share of what the pool holds, so one default costs its depositors at most that share; 10000 lets one anchor take the whole pool |
+| Most owed per anchor | The most one anchor's wallet may owe across its open listings, in the token's base units, so one default costs its depositors at most that. A fixed amount rather than a share of what the pool holds: a share could be raised by depositing before a listing and withdrawing after it. It counts per wallet, so in a shared pool a business listing from several wallets owes up to that much on each; a pool that must bound a business names its anchors |
 
 `pools/supplier-devnet.toml` lists every parameter with what it decides, and `create-supplier-pool` (`cli/`) creates a pool from it.
 
@@ -45,14 +45,14 @@ A listing's address includes the anchor's wallet because bill leaves are public:
 - **Withdrawals are paid at once, from idle only.** A depositor can't leave while every token is out to suppliers; it waits for repayments. Epochs, as the receivables pool's, come when a pool holds money that isn't the team's own.
 - **The fee counts in NAV when the claim is paid,** not as the days pass, so a deposit sent just before a claim and withdrawn just after takes a share of its fee. Accruing the fee to the due date closes it.
 - **A late repayment changes nothing.** A claimed listing past its due date stays in NAV at its face amount; impairing it, and what counts as late, is the collateral agent's to enforce until the pool marks listings.
-- **Listings are not funded when made.** A pool can list more than it holds idle (up to its cap per anchor); a claim it can't pay waits.
+- **Listings are not funded when made.** A pool can list more than it holds idle (up to the most each anchor may owe); a claim it can't pay waits.
 - **No business leaf.** The pool judges the bill, not the anchor: a bespoke pool names the anchors it takes, and a shared pool takes any wallet whose bill leaf passes. Rules over the anchor's ratios come with the business leaf.
 - **Not audited.** The upgrade authority stays with Scriply on devnet and is renounced, or handed to someone else, before the program holds real money.
 
 ## Consequences
 
-- A shared pool's credit is every listing anchor's, so its depositors judge each by the rules the pool was created with, without its name: from what Scriply verified of it and what it publishes about itself, read by its wallet. One anchor's default is shared by every depositor, up to the cap per anchor if the pool has one. A bespoke pool's credit is its anchors' alone.
-- A cap per anchor is a share of what the pool holds, so a young shared pool with one anchor lends that anchor only its share.
+- A shared pool's credit is every listing anchor's, so its depositors judge each by the rules the pool was created with, without its name: from what Scriply verified of it and what it publishes about itself, read by its wallet. One anchor's default is shared by every depositor, up to the most that anchor's wallet may owe. A bespoke pool's credit is its anchors' alone.
+- The most owed per anchor is fixed when the pool is created, so it doesn't grow or shrink with the pool: a pool that grows lends each anchor no more, and one that shrinks may have one anchor owing much of what it holds.
 
 ## Alternatives considered
 

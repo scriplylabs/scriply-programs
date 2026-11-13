@@ -260,7 +260,7 @@ fn test_a_claim_after_the_repayment_date_is_refused() {
 
 #[test]
 fn test_a_claim_the_pool_cannot_pay_waits() {
-    let mut env = Env::with_params(|p| p.cap_per_anchor_bps = 10_000);
+    let mut env = Env::with_params(|p| p.max_owed_per_anchor = u64::MAX);
     let depositor = env.deposit(10_000 * USDC);
     let bill = env.bill(10_000);
     let listing = env.list(&bill);
@@ -278,7 +278,7 @@ fn test_a_claim_the_pool_cannot_pay_waits() {
 
 #[test]
 fn test_a_withdrawal_is_paid_only_from_idle() {
-    let mut env = Env::with_params(|p| p.cap_per_anchor_bps = 10_000);
+    let mut env = Env::with_params(|p| p.max_owed_per_anchor = u64::MAX);
     let depositor = env.deposit(10_000 * USDC);
     let bill = env.bill(10_000);
     let listing = env.list(&bill);
@@ -343,8 +343,9 @@ fn test_a_bespoke_pool_takes_the_anchors_it_names() {
 #[test]
 fn test_listings_past_the_cap_per_anchor_are_refused() {
     let mut env = Env::new();
-    env.deposit(30_000 * USDC);
-    // Half of 30,000 is 15,000: the first fits, the second doesn't.
+    // However much the pool holds, an anchor owes it at most 15,000: the
+    // first fits, the second doesn't.
+    env.deposit(1_000_000 * USDC);
     let first = env.bill(10_000);
     env.list(&first);
     let second = env.bill_to(&env.supplier.pubkey(), [7; 32], 10_000);
@@ -474,7 +475,7 @@ fn test_invalid_parameters_are_refused() {
             "InvalidFee",
         ),
         (
-            Box::new(|p: &mut supplier_pool::PoolParams| p.cap_per_anchor_bps = 0),
+            Box::new(|p: &mut supplier_pool::PoolParams| p.max_owed_per_anchor = 0),
             "InvalidCap",
         ),
         (

@@ -25,9 +25,10 @@ anchors = []
 # lists.
 max_root_age_seconds = 172800
 
-# The most one anchor's open listings may be, as a share of what the pool
-# holds. 10000 lets one anchor take the whole pool.
-cap_per_anchor_bps = 5000
+# The most one anchor's wallet may owe the pool across its open listings,
+# in the token's base units: 25,000 USDC (6 decimals). A fixed amount, so
+# a deposit made for a listing and withdrawn after it can't raise it.
+max_owed_per_anchor = 25000000000
 
 [fee]
 # "flat": the same fee whatever the term. "per-day": base_bps plus
