@@ -63,7 +63,11 @@ pub fn read_token_facts(
     );
     let snapshot = Snapshot::parse(&proven.snapshot).map_err(|e| match e {
         SnapshotError::TooShort => error!(PoolError::SnapshotTooShort),
-        SnapshotError::UnsupportedVersion => error!(PoolError::UnsupportedSnapshotVersion),
+        // Another kind of leaf in the same tree, such as a bill's, is no
+        // token's snapshot.
+        SnapshotError::UnsupportedVersion | SnapshotError::NotASnapshot => {
+            error!(PoolError::UnsupportedSnapshotVersion)
+        }
     })?;
     require!(snapshot.network == pool.network, PoolError::WrongNetwork);
     require_keys_eq!(

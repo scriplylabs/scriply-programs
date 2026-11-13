@@ -1,0 +1,42 @@
+[package]
+name = "supplier-pool"
+version = "0.1.0"
+description = "A pool with no admin that pays an anchor's suppliers early on bills a signer attested, and is repaid by the anchor on a later date"
+license = "Apache-2.0"
+repository = "https://github.com/scriplylabs/scriply-programs"
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "supplier_pool"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "snapshot-roots/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = { version = "1.2.2", features = ["init-if-needed"] }
+anchor-spl = "1.2.2"
+# Where signers post their roots; its account type, and the leaf layouts
+# and Merkle proofs it re-exports.
+snapshot-roots = { path = "../snapshot-roots", features = ["cpi"] }
+# The claim's commitment, through the runtime's syscall on chain.
+solana-sha256-hasher = { version = "3.1.0", features = ["sha2"] }
+
+[dev-dependencies]
+litesvm = { version = "0.15.0", features = ["precompiles"] }
+solana-message = "4"
+solana-transaction = "4"
+solana-signer = "3"
+solana-keypair = "3"
+solana-account = "4.3.1"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

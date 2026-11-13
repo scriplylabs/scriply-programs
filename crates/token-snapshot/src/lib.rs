@@ -1,5 +1,5 @@
-//! A receivables token's snapshot, and the Merkle tree a signer commits
-//! every token's snapshot to. docs/snapshot.md is the spec.
+//! A receivables token's snapshot, a bill leaf, and the Merkle tree a signer
+//! commits them to. docs/snapshot.md and docs/bill-leaf.md are the specs.
 //!
 //! A signer (a business that verifies orgs and their receivables, such as
 //! Scriply) builds a tree whose leaves are every token's latest snapshot and
@@ -16,7 +16,10 @@
 //! assert!(merkle::verify(&tree.root(), &leaves[1], &tree.prove(1)));
 //! ```
 
+mod bill;
+pub mod leaf;
 pub mod merkle;
 mod snapshot;
 
+pub use bill::*;
 pub use snapshot::*;

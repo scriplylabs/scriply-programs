@@ -49,6 +49,20 @@ A lending pool with no admin. Anyone creates a pool with fixed parameters, inclu
 - **A borrower's vault must be thawed before their first loan against a token in a pool.** Receivables tokens' accounts start frozen, and only the issuer (or, later, a gate program) thaws one. `borrow` creates the vault if it is missing, but a new vault is frozen, so a first `borrow` that also creates it fails. The client first creates the vault (the associated token account of the loan's address; whoever creates it pays its rent, usually the borrower), then asks the issuer to thaw it, waits until the vault reads thawed on chain, then borrows. Scriply thaws by one fixed rule, read on chain, and reviews no pool: the token is one it issues, the pool is an account of this program, and the borrower's associated token account for the token is thawed (another account of theirs doesn't count). Anyone asks at `POST /v1/public/pools/{network}/{poolAddress}/loan-vault-thaws` on Scriply's API with `{tokenAddress, borrower}`; it answers 202 once the request is queued, not once the vault is thawed, and 404 on a network with no pool program (only `sol-devnet` today). The vault stays thawed for every later loan of that borrower against that token in that pool. Units anyone sends the vault before the first loan are pledged with it and go back to the borrower with it. The rule is safe only because the program moves units out of a vault to nobody but its borrower, so every new way out must keep to that.
 - **Not audited.** The upgrade authority stays with Scriply on devnet and is renounced once the program has been audited, before it holds real money.
 
+## supplier-pool
+
+A pool with no admin that pays an anchor's suppliers early on bills a signer attested, and is repaid in full by the anchor on a later date (reverse factoring). Anyone creates one with fixed parameters: its token, its fee (flat, or growing with the days to repayment), whose roots it reads bills' facts from, the anchors it takes (any, or the wallets it names), its rules over each bill's facts (which documents were verified, the vendor's history with the anchor in bands, the longest term), the most one anchor may owe it, and the days late after which anyone may write an unrepaid listing off. `docs/supplier-pool-design.md` explains how it decides; `docs/bill-leaf.md` is the bill leaf's layout; `pools/supplier-devnet.toml` lists every parameter, and `create-supplier-pool` (`cli/`) creates a pool from it.
+
+| Instruction | Who | What |
+|---|---|---|
+| `create_pool` | Anyone | Creates a pool for a token with its parameters, at `["pool", creator, mint]` |
+| `deposit` / `withdraw` | Depositors | The token for shares at NAV (idle plus what anchors owe on paid bills not written off), and back from idle |
+| `list_bill` | An anchor | Lists a bill at its leaf's amount and repayment date, once the leaf is proven against a signer's latest root and passes the pool's rules; the error names the rule that refused |
+| `cancel_listing` | The anchor | Closes an unclaimed listing, returning its rent and deposit |
+| `claim` | Anyone, with the supplier's signature | Pays the supplier the amount less the fee, on an ed25519 check of its signature and the salt that opens the listing's commitment; refunds the fee payer from the listing's deposit. A commitment is claimed once across every pool |
+| `repay` | The anchor | Pays a claimed listing's whole amount into the pool and closes it |
+| `write_off` | Anyone | Takes a claimed listing unrepaid past the pool's write-off days out of NAV; a later repayment counts again |
+
 ## snapshot-roots
 
 Where each signer posts the Merkle root of every receivables token's latest snapshot. A signer posts to its own account, at an address derived from its key, so nobody else can post there and nothing administers it. A program that trusts a signer reads its account and verifies a token's snapshot, with the proof a keeper hands it, against a root there. `docs/snapshot.md` has the tree's rules.

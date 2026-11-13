@@ -13,10 +13,12 @@ skip-lint = false
 [programs.localnet]
 receivables_pool = "A5yYgE96b4cPU98zAwXhZtcbG6pyjuRUemodPyqQpQFD"
 snapshot_roots = "BZ3g7Fh9QSvwZbq6rDeKq11Tq99SQ1SmyC6qzZYT82ea"
+supplier_pool = "tpn1V8kAmBpxBdwTjUJF4Yh7Eui4NWX4NHiKjcrJW81"
 
 [programs.devnet]
 receivables_pool = "A5yYgE96b4cPU98zAwXhZtcbG6pyjuRUemodPyqQpQFD"
 snapshot_roots = "BZ3g7Fh9QSvwZbq6rDeKq11Tq99SQ1SmyC6qzZYT82ea"
+supplier_pool = "tpn1V8kAmBpxBdwTjUJF4Yh7Eui4NWX4NHiKjcrJW81"
 
 [provider]
 cluster = "localnet"
