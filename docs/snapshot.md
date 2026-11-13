@@ -54,6 +54,7 @@ A signer commits every token's latest snapshot at once by posting one Merkle roo
 - **Node:** `sha256(0x01 || lo || hi)`, where `lo` is the smaller of the two children compared byte by byte. Sorting the pair means a proof is only the siblings, bottom up, with no left-or-right.
 - **Odd levels:** the last node of a level with an odd count moves up unchanged, and its proof skips that level.
 - **One leaf per token.** A signer puts each mint in a tree at most once; a program can't check this, so it is part of what the signer vouches for.
+- **Other kinds of leaf share the tree.** A leaf whose first byte is `0x80` or more is not a token's snapshot: a bill leaf (`0x82`, `bill-leaf.md`), and later a business leaf (`0x81`). `Snapshot::parse` refuses them, so a pool reading snapshots can't be handed one.
 - **Proofs are at most 32 hashes** (a tree of 2^32 leaves).
 
 The prefixes keep a node's two children from passing as a snapshot. `crates/token-snapshot` implements this (`merkle::verify` on chain, `merkle::Tree` off it), and `docs/snapshot-vectors.json` has snapshots, leaves, a root and proofs for a signer or keeper written in another language to check itself against.

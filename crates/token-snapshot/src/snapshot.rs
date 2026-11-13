@@ -1,3 +1,5 @@
+use crate::leaf::{Reader, LEAF_KIND_MIN};
+
 /// The layout version this crate reads, and every later one.
 pub const SNAPSHOT_VERSION: u8 = 2;
 
@@ -13,6 +15,8 @@ pub enum SnapshotError {
     TooShort,
     /// A version before SNAPSHOT_VERSION, which lacks fields this crate reads.
     UnsupportedVersion,
+    /// Another kind of leaf: its first byte is a kind, not a version.
+    NotASnapshot,
 }
 
 /// The facts a signer vouches for about one token on one network at one
@@ -74,13 +78,16 @@ impl Snapshot {
         let Some(&version) = bytes.first() else {
             return Err(SnapshotError::TooShort);
         };
+        if version >= LEAF_KIND_MIN {
+            return Err(SnapshotError::NotASnapshot);
+        }
         if version < SNAPSHOT_VERSION {
             return Err(SnapshotError::UnsupportedVersion);
         }
         if bytes.len() < SNAPSHOT_LEN {
             return Err(SnapshotError::TooShort);
         }
-        let mut r = Reader { bytes, at: 1 };
+        let mut r = Reader::new(bytes, 1);
         Ok(Self {
             version,
             network: r.array(),
@@ -143,33 +150,6 @@ impl Snapshot {
             b.extend_from_slice(&v.to_le_bytes());
         }
         b
-    }
-}
-
-/// Reads fixed-width little-endian fields; `parse` checks the length first.
-struct Reader<'a> {
-    bytes: &'a [u8],
-    at: usize,
-}
-
-impl Reader<'_> {
-    fn array<const N: usize>(&mut self) -> [u8; N] {
-        let mut out = [0u8; N];
-        out.copy_from_slice(&self.bytes[self.at..self.at + N]);
-        self.at += N;
-        out
-    }
-
-    fn u8(&mut self) -> u8 {
-        self.array::<1>()[0]
-    }
-
-    fn u16(&mut self) -> u16 {
-        u16::from_le_bytes(self.array())
-    }
-
-    fn u64(&mut self) -> u64 {
-        u64::from_le_bytes(self.array())
     }
 }
 
@@ -260,6 +240,13 @@ mod tests {
             Snapshot::parse(&bytes[..SNAPSHOT_LEN - 1]),
             Err(SnapshotError::TooShort)
         );
+    }
+
+    #[test]
+    fn test_another_kind_of_leaf_is_refused() {
+        let mut bytes = sample().to_bytes();
+        bytes[0] = LEAF_KIND_MIN;
+        assert_eq!(Snapshot::parse(&bytes), Err(SnapshotError::NotASnapshot));
     }
 
     #[test]
