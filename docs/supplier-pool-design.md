@@ -12,8 +12,10 @@ A pool is one token's money, lent to the suppliers of the anchors whose bills it
 | Fee | What it keeps of each bill it pays early, in basis points: flat whatever the term (1.5%, say), or a curve over the days from the claim to the due date, so a longer wait costs the supplier more |
 | Anchors | Any anchor, or only the wallets it names |
 | Signers | Whose roots it reads the anchors' and bills' facts from |
-| Rules | What it refuses, by its own thresholds on the ratios in the anchor's business leaf and the facts in the bill's leaf (which documents were verified, the vendor's history in bands), and how old a publication and a root it takes |
-| Cap per anchor | Optionally, the most one anchor's listings may be, as a share of what the pool holds, so one default costs its depositors at most that share |
+| Rules | What it refuses, by its own thresholds on the facts in the bill's leaf (which documents were verified, the vendor's history in bands, how far off the repayment date is), and how old a root it takes. Rules on the ratios in the anchor's business leaf come with that leaf: this version reads no business leaf |
+| Cap per anchor | The most one anchor's open listings may be, as a share of what the pool holds, so one default costs its depositors at most that share; 10000 lets one anchor take the whole pool |
+
+`pools/supplier-devnet.toml` lists every parameter with what it decides, and `create-supplier-pool` (`cli/`) creates a pool from it.
 
 ## Accounts and instructions
 
@@ -23,17 +25,28 @@ Amounts are in the token's base units; dates are Unix seconds, UTC.
 |---|---|---|
 | Pool | `["pool", creator, mint]` | Its parameters (above); its vault is the pool's associated token account |
 | Anchor | `["anchor", pool, wallet]` | What the anchor's wallet owes the pool across its open listings |
-| Listing | `["listing", pool, commitment]` | The anchor's wallet, the commitment, the amount, the due date, the fee deposit's lamports, and whether it is claimed |
+| Listing | `["listing", pool, anchor wallet, commitment]` | The anchor's wallet, the commitment, the amount, the due date, the fee deposit's lamports, and whether it is claimed, by whom and for how much |
+
+A listing's address includes the anchor's wallet because bill leaves are public: keyed by the commitment alone, anyone could list a leaf first and take its address in the pool, and the anchor could never list it there. A stranger's listing of the same leaf holds only the stranger's deposit, since only the anchor's recorded listing is ever given the salt.
 
 | Instruction | Signed by | Does |
 |---|---|---|
 | `create_pool(params)` | Its creator | Creates the pool and its vault, with parameters nobody can change afterwards |
-| `list_bill(commitment, amount, due_date, fee_deposit, business_leaf, business_proof, bill_leaf, bill_proof)` | The anchor | Checks that the business leaf is the signing wallet's and the bill leaf is this commitment's, each under the latest root one of the pool's signers posted, no older than the pool allows, on the pool's network, and that the amount and due date are the bill leaf's; refuses an anchor the pool doesn't take, facts that fail a rule, or listings that would pass its cap, naming which; creates the listing and the anchor's account if it has none, paying their rent and the deposit, and adds the amount to what the anchor owes |
+| `deposit(amount)` | Anyone | The pool's token for shares at its NAV per share: what it holds idle plus what anchors owe on bills it paid |
+| `withdraw(shares)` | A depositor | Burns shares for what they are worth at the NAV, paid from idle; refused when idle can't pay it all |
+| `list_bill(commitment, {root, leaf, proof})` | The anchor | Checks that the bill leaf is this commitment's, under the latest root one of the pool's signers posted, no older than the pool allows, on the pool's network and in its currency, and lists it at the leaf's amount (converted to the token's base units) and with the leaf's `repayOn` as its due date; refuses an anchor the pool doesn't take, facts that fail a rule, or listings that would pass its cap, naming which; creates the listing and the anchor's account if it has none, paying their rent and the deposit (the claim's network fee and a token account's rent), and adds the amount to what the anchor owes |
 | `cancel_listing()` | The anchor | Closes an unclaimed listing to the anchor |
-| `claim(salt)` | Anyone (the fee payer) | With the transaction's ed25519 check of the supplier's signature over the claim message: checks the commitment, pays the amount less the fee (the pool's fee in basis points for the days from now to the due date, of the amount in base units, rounded down) to the supplier's token account (creating it), refunds the fee payer from the deposit, marks the listing claimed |
+| `claim(salt)` | Anyone (the fee payer) | With the transaction's ed25519 check of the supplier's signature over `scriply-supplier-finance-claim:{listing address}`, in an earlier instruction and carrying its key, signature and message in its own data: checks that `sha256(supplier ‖ salt)` is the commitment and the due date hasn't passed, pays the amount less the fee (the pool's fee in basis points for the days from now to the due date, rounded up, of the amount, rounded down) to the supplier's associated token account (creating it), refunds the fee payer the network fee and that account's rent from the deposit, marks the listing claimed. Refused while idle can't pay it, so it waits for deposits or repayments |
 | `repay()` | The anchor | Pays the amount into the vault, takes it off what the anchor owes, and closes the claimed listing to the anchor |
 
-Deposits, withdrawals (on epochs, as the receivables pool's are) and what counts as a late repayment are still to be designed, reusing the receivables pool's where they can. Once a listing is made the pool waits for its due date and the anchor's repayment; whether it marks open listings from the anchor's newer leaves, so its NAV counts an anchor whose facts worsen, is decided with the withdrawals.
+## Limits of this version
+
+- **Withdrawals are paid at once, from idle only.** A depositor can't leave while every token is out to suppliers; it waits for repayments. Epochs, as the receivables pool's, come when a pool holds money that isn't the team's own.
+- **The fee counts in NAV when the claim is paid,** not as the days pass, so a deposit sent just before a claim and withdrawn just after takes a share of its fee. Accruing the fee to the due date closes it.
+- **A late repayment changes nothing.** A claimed listing past its due date stays in NAV at its face amount; impairing it, and what counts as late, is the collateral agent's to enforce until the pool marks listings.
+- **Listings are not funded when made.** A pool can list more than it holds idle (up to its cap per anchor); a claim it can't pay waits.
+- **No business leaf.** The pool judges the bill, not the anchor: a bespoke pool names the anchors it takes, and a shared pool takes any wallet whose bill leaf passes. Rules over the anchor's ratios come with the business leaf.
+- **Not audited.** The upgrade authority stays with Scriply on devnet and is renounced, or handed to someone else, before the program holds real money.
 
 ## Consequences
 
