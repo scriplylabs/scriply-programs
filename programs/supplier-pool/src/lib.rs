@@ -6,7 +6,8 @@
 //! anchor lists a bill with its bill leaf proven against a signer's latest
 //! root; the supplier claims with a signature from the address the listing
 //! commits to and is paid the amount less the fee; the anchor repays the
-//! whole amount by the bill's repayment date.
+//! whole amount by the bill's repayment date. A listing left unrepaid past
+//! the pool's grace is written off, out of NAV, by anyone.
 
 pub mod claim_signature;
 pub mod constants;
@@ -71,5 +72,11 @@ pub mod supplier_pool {
     /// Repays a claimed listing in full and closes it to its anchor.
     pub fn repay(ctx: Context<Repay>) -> Result<()> {
         instructions::repay::handle_repay(ctx)
+    }
+
+    /// Takes a claimed listing out of NAV once the pool's days past its due
+    /// date have passed unrepaid. Anyone may send it.
+    pub fn write_off(ctx: Context<WriteOff>) -> Result<()> {
+        instructions::write_off::handle_write_off(ctx)
     }
 }

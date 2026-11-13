@@ -65,6 +65,7 @@ pub fn demo_params(signer: Pubkey) -> PoolParams {
         },
         max_root_age: 2 * DAY as u32,
         max_owed_per_anchor: 15_000 * USDC,
+        write_off_after_days: 30,
     }
 }
 
@@ -547,6 +548,18 @@ impl Env {
                 anchor: *anchor,
                 pool: self.pool,
                 anchor_account: self.anchor_account_of(anchor),
+                listing: *listing,
+            }
+            .to_account_metas(None),
+        )
+    }
+
+    pub fn write_off_ix(&self, listing: &Pubkey) -> Instruction {
+        Instruction::new_with_bytes(
+            supplier_pool::id(),
+            &supplier_pool::instruction::WriteOff {}.data(),
+            supplier_pool::accounts::WriteOff {
+                pool: self.pool,
                 listing: *listing,
             }
             .to_account_metas(None),

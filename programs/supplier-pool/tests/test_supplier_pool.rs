@@ -277,6 +277,48 @@ fn test_a_claim_the_pool_cannot_pay_waits() {
 }
 
 #[test]
+fn test_a_listing_unrepaid_past_the_pools_days_is_written_off_and_repaid_back() {
+    let mut env = Env::new();
+    env.deposit(100_000 * USDC);
+    let bill = env.bill(10_000);
+    let listing = env.list(&bill);
+    // Anyone: a stranger's wallet pays for it.
+    let keeper = env.wallet();
+    let ix = env.write_off_ix(&listing);
+    env.send_expecting_error(&[ix], &[&keeper], "NotClaimed");
+    env.claim(&listing, &bill).unwrap();
+    let nav_before = {
+        let p = env.pool_state();
+        p.idle + p.outstanding
+    };
+
+    // 29 days late: not yet.
+    env.set_time(bill.leaf.repay_on + 29 * DAY);
+    let ix = env.write_off_ix(&listing);
+    env.send_expecting_error(&[ix], &[&keeper], "NotYetOverdue");
+
+    // 30 days late: anyone writes it off, and NAV stops counting it.
+    env.set_time(bill.leaf.repay_on + 30 * DAY);
+    let ix = env.write_off_ix(&listing);
+    env.send(&[ix], &[&keeper]).unwrap();
+    let pool = env.pool_state();
+    assert_eq!(pool.outstanding, 0);
+    assert_eq!(pool.written_off, 10_000 * USDC);
+    assert_eq!(pool.idle + pool.outstanding, nav_before - 10_000 * USDC);
+    let ix = env.write_off_ix(&listing);
+    env.send_expecting_error(&[ix], &[&keeper], "AlreadyWrittenOff");
+
+    // The anchor still owes it; its repayment counts again.
+    let anchor = env.anchor.insecure_clone();
+    env.fund_usdc(&anchor.pubkey(), 10_000 * USDC);
+    let ix = env.repay_ix(&anchor.pubkey(), &listing);
+    env.send(&[ix], &[&anchor]).unwrap();
+    let pool = env.pool_state();
+    assert_eq!(pool.written_off, 0);
+    assert_eq!(pool.idle + pool.outstanding, nav_before);
+}
+
+#[test]
 fn test_a_withdrawal_is_paid_only_from_idle() {
     let mut env = Env::with_params(|p| p.max_owed_per_anchor = u64::MAX);
     let depositor = env.deposit(10_000 * USDC);

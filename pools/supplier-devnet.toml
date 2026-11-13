@@ -30,6 +30,12 @@ max_root_age_seconds = 172800
 # a deposit made for a listing and withdrawn after it can't raise it.
 max_owed_per_anchor = 25000000000
 
+# The days past a listing's repayment date after which anyone may write it
+# off if its anchor hasn't repaid: NAV stops counting it, and a later
+# repayment counts again. Until then, depositors leaving are paid as if it
+# will be repaid.
+write_off_after_days = 30
+
 [fee]
 # "flat": the same fee whatever the term. "per-day": base_bps plus
 # bps_per_30_days for every 30 days from the claim to the repayment date,

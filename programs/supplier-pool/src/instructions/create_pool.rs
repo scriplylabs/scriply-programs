@@ -64,9 +64,11 @@ pub fn handle_create_pool(ctx: Context<CreatePool>, params: PoolParams) -> Resul
     pool.rules = params.rules;
     pool.max_root_age = params.max_root_age;
     pool.max_owed_per_anchor = params.max_owed_per_anchor;
+    pool.write_off_after_days = params.write_off_after_days;
     pool.idle = 0;
     pool.outstanding = 0;
     pool.listed = 0;
+    pool.written_off = 0;
     pool.reserved = [0; 128];
     emit!(PoolCreated {
         pool: pool.key(),

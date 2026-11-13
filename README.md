@@ -51,16 +51,17 @@ A lending pool with no admin. Anyone creates a pool with fixed parameters, inclu
 
 ## supplier-pool
 
-A pool with no admin that pays an anchor's suppliers early on bills a signer attested, and is repaid in full by the anchor on a later date (reverse factoring). Anyone creates one with fixed parameters: its token, its fee (flat, or growing with the days to repayment), whose roots it reads bills' facts from, the anchors it takes (any, or the wallets it names), its rules over each bill's facts (which documents were verified, the vendor's history with the anchor in bands, the longest term) and the most one anchor may owe it. `docs/supplier-pool-design.md` explains how it decides; `docs/bill-leaf.md` is the bill leaf's layout; `pools/supplier-devnet.toml` lists every parameter, and `create-supplier-pool` (`cli/`) creates a pool from it.
+A pool with no admin that pays an anchor's suppliers early on bills a signer attested, and is repaid in full by the anchor on a later date (reverse factoring). Anyone creates one with fixed parameters: its token, its fee (flat, or growing with the days to repayment), whose roots it reads bills' facts from, the anchors it takes (any, or the wallets it names), its rules over each bill's facts (which documents were verified, the vendor's history with the anchor in bands, the longest term), the most one anchor may owe it, and the days late after which anyone may write an unrepaid listing off. `docs/supplier-pool-design.md` explains how it decides; `docs/bill-leaf.md` is the bill leaf's layout; `pools/supplier-devnet.toml` lists every parameter, and `create-supplier-pool` (`cli/`) creates a pool from it.
 
 | Instruction | Who | What |
 |---|---|---|
 | `create_pool` | Anyone | Creates a pool for a token with its parameters, at `["pool", creator, mint]` |
-| `deposit` / `withdraw` | Depositors | The token for shares at NAV (idle plus what anchors owe on paid bills), and back from idle |
+| `deposit` / `withdraw` | Depositors | The token for shares at NAV (idle plus what anchors owe on paid bills not written off), and back from idle |
 | `list_bill` | An anchor | Lists a bill at its leaf's amount and repayment date, once the leaf is proven against a signer's latest root and passes the pool's rules; the error names the rule that refused |
 | `cancel_listing` | The anchor | Closes an unclaimed listing, returning its rent and deposit |
-| `claim` | Anyone, with the supplier's signature | Pays the supplier the amount less the fee, on an ed25519 check of its signature and the salt that opens the listing's commitment; refunds the fee payer from the listing's deposit |
+| `claim` | Anyone, with the supplier's signature | Pays the supplier the amount less the fee, on an ed25519 check of its signature and the salt that opens the listing's commitment; refunds the fee payer from the listing's deposit. A commitment is claimed once across every pool |
 | `repay` | The anchor | Pays a claimed listing's whole amount into the pool and closes it |
+| `write_off` | Anyone | Takes a claimed listing unrepaid past the pool's write-off days out of NAV; a later repayment counts again |
 
 ## snapshot-roots
 

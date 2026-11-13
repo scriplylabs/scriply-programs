@@ -137,6 +137,7 @@ pub fn handle_list_bill(
     listing.due_date = bill.repay_on;
     listing.fee_deposit = fee_deposit;
     listing.claimed = false;
+    listing.written_off = false;
 
     let pool = &mut ctx.accounts.pool;
     pool.listed = pool

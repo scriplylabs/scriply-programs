@@ -49,6 +49,13 @@ pub struct BillClaimed {
 }
 
 #[event]
+pub struct ListingWrittenOff {
+    pub pool: Pubkey,
+    pub listing: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
 pub struct ListingRepaid {
     pub pool: Pubkey,
     pub listing: Pubkey,

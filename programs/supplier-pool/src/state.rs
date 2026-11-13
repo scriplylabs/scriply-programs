@@ -87,6 +87,9 @@ pub struct PoolParams {
     /// what the pool holds, so a deposit made for a listing and withdrawn
     /// after it can't raise it.
     pub max_owed_per_anchor: u64,
+    /// The days past a listing's due date after which anyone may write it
+    /// off if its anchor hasn't repaid: NAV stops counting it.
+    pub write_off_after_days: u16,
 }
 
 /// A pool at `[POOL_SEED, creator, mint]`. Its vault is its own associated
@@ -111,6 +114,7 @@ pub struct Pool {
     pub rules: BillRules,
     pub max_root_age: u32,
     pub max_owed_per_anchor: u64,
+    pub write_off_after_days: u16,
     /// The token in the vault that the pool counts: deposits and
     /// repayments in, claims and withdrawals out. Tokens sent to the vault
     /// any other way are not counted.
@@ -120,12 +124,16 @@ pub struct Pool {
     pub outstanding: u64,
     /// Open listings not yet claimed, at their amounts.
     pub listed: u64,
+    /// Claimed listings written off and not yet repaid, at their amounts:
+    /// outside NAV until their anchors repay.
+    pub written_off: u64,
     /// Room for fields a later layout adds.
     pub reserved: [u8; 128],
 }
 
 impl Pool {
-    /// What the pool holds: idle plus what anchors owe on paid bills.
+    /// What the pool holds: idle plus what anchors owe on paid bills not
+    /// written off.
     pub fn nav(&self) -> Result<u64> {
         self.idle
             .checked_add(self.outstanding)
@@ -213,6 +221,9 @@ pub struct Listing {
     pub claimed_at: i64,
     /// What the supplier was paid: the amount less the fee.
     pub paid: u64,
+    /// Set once its anchor was late past the pool's days: NAV no longer
+    /// counts it.
+    pub written_off: bool,
 }
 
 /// That a commitment was claimed, at `[CLAIMED_SEED, commitment]`: one per
@@ -281,9 +292,11 @@ mod tests {
             },
             max_root_age: 1,
             max_owed_per_anchor: u64::MAX,
+            write_off_after_days: 0,
             idle: 0,
             outstanding: 0,
             listed: 0,
+            written_off: 0,
             reserved: [0; 128],
         }
     }

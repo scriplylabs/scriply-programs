@@ -44,7 +44,8 @@ pub struct Repay<'info> {
 }
 
 /// Pays a claimed listing's whole amount into the vault and closes it,
-/// returning its rent and what is left of its deposit to the anchor.
+/// returning its rent and what is left of its deposit to the anchor. A
+/// listing written off counts in NAV again as the repayment arrives.
 pub fn handle_repay(ctx: Context<Repay>) -> Result<()> {
     let listing = &ctx.accounts.listing;
     require!(listing.claimed, SupplierPoolError::NotClaimed);
@@ -60,8 +61,13 @@ pub fn handle_repay(ctx: Context<Repay>) -> Result<()> {
         amount,
     )?;
     ctx.accounts.anchor_account.owed -= amount;
+    let written_off = ctx.accounts.listing.written_off;
     let pool = &mut ctx.accounts.pool;
-    pool.outstanding -= amount;
+    if written_off {
+        pool.written_off -= amount;
+    } else {
+        pool.outstanding -= amount;
+    }
     pool.idle = pool
         .idle
         .checked_add(amount)

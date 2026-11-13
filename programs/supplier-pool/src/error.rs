@@ -70,6 +70,12 @@ pub enum SupplierPoolError {
     #[msg("The pool holds too little idle to pay this claim")]
     PoolShort,
 
+    // A write-off
+    #[msg("The listing isn't past its due date by the pool's days yet")]
+    NotYetOverdue,
+    #[msg("The listing is already written off")]
+    AlreadyWrittenOff,
+
     // Deposits and withdrawals
     #[msg("The amount must be above zero")]
     ZeroAmount,
