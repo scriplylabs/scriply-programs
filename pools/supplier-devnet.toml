@@ -1,0 +1,51 @@
+# A supplier pool's parameters: which bills it pays early, for what fee,
+# and from whose facts. `create-supplier-pool` (cli/) creates a pool from
+# this file. Nothing changes a pool's parameters once it exists: a
+# different pool is a new file. docs/supplier-pool-design.md says what each
+# decides.
+#
+# Shares and fees are in basis points (bps): 10000 is 100%.
+version = 1
+
+# The network the pool pays on, as bill leaves name it.
+network = "sol-devnet"
+# The currency its bills are in, by asset ID; the pool's token is its
+# stablecoin (USDC for FIAT_USD).
+currency = "FIAT_USD"
+
+# The keys whose roots, posted to the snapshot-roots program, the pool reads
+# bills' facts from (1 to 4): Scriply's devnet signer.
+signers = ["HhpwUwU6TFgzqzNuKhZcAuMuUMdKKge7Um385nT4Jcyu"]
+
+# The anchors' wallets the pool takes (up to 8); empty takes any anchor
+# whose bills pass the rules below.
+anchors = []
+
+# The oldest root the pool reads: two days, so a day's root missed still
+# lists.
+max_root_age_seconds = 172800
+
+# The most one anchor's open listings may be, as a share of what the pool
+# holds. 10000 lets one anchor take the whole pool.
+cap_per_anchor_bps = 5000
+
+[fee]
+# "flat": the same fee whatever the term. "per-day": base_bps plus
+# bps_per_30_days for every 30 days from the claim to the repayment date,
+# at most max_bps.
+kind = "flat"
+bps = 150
+
+[rules]
+# The documents an operator must have verified, as bits: vendor's invoice
+# 1, purchase order 2, proof of delivery 4.
+required_documents = 1
+# The least band of how long the anchor has paid this vendor: 0 never,
+# 1 under 90 days, 2 90-179, 3 180-364, 4 a year or more.
+min_vendor_tenure = 0
+# The least band of what the anchor paid this vendor in the past year,
+# as a multiple of this bill: 0 nothing, 1 under 1x, 2 1-3x, 3 3-10x,
+# 4 10-50x, 5 50x or more.
+min_vendor_volume = 0
+# The most days from listing a bill to its repayment date.
+max_term_days = 120
