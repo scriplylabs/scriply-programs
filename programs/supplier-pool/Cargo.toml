@@ -31,6 +31,8 @@ snapshot-roots = { path = "../snapshot-roots", features = ["cpi"] }
 solana-sha256-hasher = { version = "3.1.0", features = ["sha2"] }
 
 [dev-dependencies]
+# Decodes the events a transaction logs, as an indexer reads them.
+base64 = "0.22.1"
 litesvm = { version = "0.15.0", features = ["precompiles"] }
 solana-message = "4"
 solana-transaction = "4"

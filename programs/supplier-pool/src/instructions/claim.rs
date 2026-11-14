@@ -138,6 +138,7 @@ pub fn handle_claim(ctx: Context<Claim>, salt: [u8; 32]) -> Result<()> {
     record.claimed_at = now;
 
     let listing = &mut ctx.accounts.listing;
+    let (anchor, commitment) = (listing.anchor, listing.commitment);
     listing.fee_deposit -= refund;
     listing.claimed = true;
     listing.supplier = supplier;
@@ -157,6 +158,8 @@ pub fn handle_claim(ctx: Context<Claim>, salt: [u8; 32]) -> Result<()> {
         supplier,
         paid,
         fee,
+        anchor,
+        commitment,
     });
     Ok(())
 }
