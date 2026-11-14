@@ -46,6 +46,8 @@ pub fn handle_write_off(ctx: Context<WriteOff>) -> Result<()> {
         pool: pool.key(),
         listing: ctx.accounts.listing.key(),
         amount,
+        anchor: ctx.accounts.listing.anchor,
+        commitment: ctx.accounts.listing.commitment,
     });
     Ok(())
 }

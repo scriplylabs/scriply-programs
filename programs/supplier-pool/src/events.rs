@@ -37,6 +37,10 @@ pub struct BillListed {
 pub struct ListingCancelled {
     pub pool: Pubkey,
     pub listing: Pubkey,
+    // anchor and commitment come last, after the fields events emitted
+    // before them had, so a reader of the older layout reads its prefix.
+    pub anchor: Pubkey,
+    pub commitment: [u8; 32],
 }
 
 #[event]
@@ -46,6 +50,10 @@ pub struct BillClaimed {
     pub supplier: Pubkey,
     pub paid: u64,
     pub fee: u64,
+    // anchor and commitment come last, after the fields events emitted
+    // before them had, so a reader of the older layout reads its prefix.
+    pub anchor: Pubkey,
+    pub commitment: [u8; 32],
 }
 
 #[event]
@@ -53,6 +61,10 @@ pub struct ListingWrittenOff {
     pub pool: Pubkey,
     pub listing: Pubkey,
     pub amount: u64,
+    // anchor and commitment come last, after the fields events emitted
+    // before them had, so a reader of the older layout reads its prefix.
+    pub anchor: Pubkey,
+    pub commitment: [u8; 32],
 }
 
 #[event]
@@ -60,4 +72,8 @@ pub struct ListingRepaid {
     pub pool: Pubkey,
     pub listing: Pubkey,
     pub amount: u64,
+    // anchor and commitment come last, after the fields events emitted
+    // before them had, so a reader of the older layout reads its prefix.
+    pub anchor: Pubkey,
+    pub commitment: [u8; 32],
 }

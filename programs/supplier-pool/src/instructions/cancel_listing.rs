@@ -39,6 +39,8 @@ pub fn handle_cancel_listing(ctx: Context<CancelListing>) -> Result<()> {
     emit!(ListingCancelled {
         pool: ctx.accounts.pool.key(),
         listing: listing.key(),
+        anchor: listing.anchor,
+        commitment: listing.commitment,
     });
     Ok(())
 }

@@ -37,6 +37,21 @@ use {
     },
 };
 
+/// events_of returns every event of type T the transaction's logs carry, as
+/// an indexer reads them: each `Program data:` line is the event's
+/// discriminator followed by its fields.
+pub fn events_of<T: anchor_lang::Event + anchor_lang::AnchorDeserialize>(
+    logs: &[String],
+) -> Vec<T> {
+    use base64::Engine;
+    logs.iter()
+        .filter_map(|line| line.strip_prefix("Program data: "))
+        .filter_map(|b64| base64::engine::general_purpose::STANDARD.decode(b64).ok())
+        .filter(|data| data.starts_with(T::DISCRIMINATOR))
+        .map(|data| T::deserialize(&mut &data[T::DISCRIMINATOR.len()..]).unwrap())
+        .collect()
+}
+
 pub const DAY: i64 = 86_400;
 pub const T0: i64 = 1_800_000_000;
 pub const USDC: u64 = 1_000_000;

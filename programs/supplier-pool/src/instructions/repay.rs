@@ -76,6 +76,8 @@ pub fn handle_repay(ctx: Context<Repay>) -> Result<()> {
         pool: pool.key(),
         listing: ctx.accounts.listing.key(),
         amount,
+        anchor: ctx.accounts.listing.anchor,
+        commitment: ctx.accounts.listing.commitment,
     });
     Ok(())
 }

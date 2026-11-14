@@ -9,6 +9,7 @@ use snapshot_roots::token_snapshot::DOCUMENT_PURCHASE_ORDER;
 use solana_signer::Signer;
 use supplier_pool::{
     claim_signature::claim_message,
+    events::{BillClaimed, ListingCancelled, ListingRepaid, ListingWrittenOff},
     state::{AnchorAccount, FeeSchedule, Listing},
     CLAIM_NETWORK_FEE_LAMPORTS,
 };
@@ -539,4 +540,51 @@ fn expect_listing_refused(env: &mut Env, bill: &Bill, name: &str) {
     let anchor = env.anchor.insecure_clone();
     let ix = env.list_ix(&anchor.pubkey(), bill.commitment, proven);
     env.send_expecting_error(&[ix], &[&anchor], name);
+}
+
+#[test]
+fn test_every_listing_event_names_its_anchor_and_commitment() {
+    // An indexer that reads only a pool's history finds each listing's bill
+    // from its events alone, without reading the listing's account.
+    let mut env = Env::new();
+    env.deposit(100_000 * USDC);
+    let anchor = env.anchor.insecure_clone();
+
+    let other = env.bill_to(&env.supplier.pubkey(), [7u8; 32], 1_000);
+    let other_listing = env.list(&other);
+    let ix = env.cancel_ix(&anchor.pubkey(), &other_listing);
+    let cancelled = env.send(&[ix], &[&anchor]).unwrap();
+    let e: Vec<ListingCancelled> = events_of(&cancelled.logs);
+    assert_eq!(
+        (e.len(), e[0].listing, e[0].anchor, e[0].commitment),
+        (1, other_listing, anchor.pubkey(), other.commitment)
+    );
+
+    let bill = env.bill(10_000);
+    let listing = env.list(&bill);
+    let claimed = env.claim(&listing, &bill).unwrap();
+    let e: Vec<BillClaimed> = events_of(&claimed.logs);
+    assert_eq!(
+        (e.len(), e[0].listing, e[0].anchor, e[0].commitment),
+        (1, listing, anchor.pubkey(), bill.commitment)
+    );
+
+    env.set_time(bill.leaf.repay_on + 30 * DAY);
+    let keeper = env.wallet();
+    let ix = env.write_off_ix(&listing);
+    let written_off = env.send(&[ix], &[&keeper]).unwrap();
+    let e: Vec<ListingWrittenOff> = events_of(&written_off.logs);
+    assert_eq!(
+        (e.len(), e[0].listing, e[0].anchor, e[0].commitment),
+        (1, listing, anchor.pubkey(), bill.commitment)
+    );
+
+    env.fund_usdc(&anchor.pubkey(), 10_000 * USDC);
+    let ix = env.repay_ix(&anchor.pubkey(), &listing);
+    let repaid = env.send(&[ix], &[&anchor]).unwrap();
+    let e: Vec<ListingRepaid> = events_of(&repaid.logs);
+    assert_eq!(
+        (e.len(), e[0].listing, e[0].anchor, e[0].commitment),
+        (1, listing, anchor.pubkey(), bill.commitment)
+    );
 }
