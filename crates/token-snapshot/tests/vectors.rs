@@ -3,11 +3,15 @@
 //! After a deliberate change, regenerate it with
 //! `UPDATE_SNAPSHOT_VECTORS=1 cargo test -p token-snapshot --test vectors`.
 //! docs/bill-leaf-vectors.json does the same for bill leaves, in a tree
-//! that also holds tokens' snapshots, as a signer's daily tree does.
+//! that also holds tokens' snapshots, as a signer's daily tree does, and
+//! docs/business-leaf-vectors.json for business leaves beside snapshots in
+//! layout version 3 and a bill leaf.
 
 use serde_json::{json, Value};
 use token_snapshot::{
-    merkle::Tree, BillLeaf, Snapshot, DOCUMENT_PURCHASE_ORDER, DOCUMENT_VENDOR_INVOICE,
+    merkle::Tree, BillLeaf, BusinessFacts, BusinessLeaf, Snapshot, DOCUMENT_PURCHASE_ORDER,
+    DOCUMENT_VENDOR_INVOICE, PROCEDURE_CASH_AGREED_TO_BANK, PROCEDURE_RECEIVABLES_CONFIRMED,
+    PROCEDURE_RECEIVABLES_TIED_TO_INVOICES, RATIO_NONE, SIGNED_RATIO_NONE,
 };
 
 fn vector_snapshots() -> Vec<Snapshot> {
@@ -145,6 +149,102 @@ fn test_bill_vectors_match_docs() {
         "/../../docs/bill-leaf-vectors.json"
     );
     let built = build_bill_vectors();
+    if std::env::var("UPDATE_SNAPSHOT_VECTORS").is_ok() {
+        let text = serde_json::to_string_pretty(&built).unwrap() + "\n";
+        std::fs::write(path, text).unwrap();
+        return;
+    }
+    let pinned: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(built, pinned);
+}
+
+fn vector_business_facts(i: u8) -> BusinessFacts {
+    BusinessFacts {
+        period_end_exclusive: 1_798_761_600 + 86_400 * i as i64,
+        commitment: [0xe0 + i; 32],
+        current_ratio_bps: 15_000 + 1_000 * i as u32,
+        quick_ratio_bps: 11_000 + 500 * i as u32,
+        cash_to_current_assets_bps: 3_000 + i as u32,
+        cash_to_current_liabilities_bps: if i == 2 { RATIO_NONE } else { 4_000 + i as u32 },
+        liabilities_to_assets_bps: 5_000 - 100 * i as u32,
+        operating_margin_bps: if i == 2 {
+            SIGNED_RATIO_NONE
+        } else {
+            -300 * i as i32
+        },
+        receivables_turnover_bps: 60_000 + 10_000 * i as u32,
+        procedures_performed: if i == 2 {
+            PROCEDURE_CASH_AGREED_TO_BANK
+        } else {
+            PROCEDURE_CASH_AGREED_TO_BANK
+                | PROCEDURE_RECEIVABLES_TIED_TO_INVOICES
+                | PROCEDURE_RECEIVABLES_CONFIRMED
+        },
+        cash_agreed_to_bank_bps: 9_900 + i as u32,
+        receivables_tied_to_invoices_bps: if i == 2 { 0 } else { 10_000 },
+        receivables_confirmed_bps: if i == 2 { 0 } else { 5_000 + i as u32 },
+    }
+}
+
+fn build_business_vectors() -> Value {
+    let mut network = [0u8; 16];
+    network[..10].copy_from_slice(b"sol-devnet");
+    // Two tokens' snapshots in layout version 3: the first's business
+    // published, the second's never did (every fact 0).
+    let mut leaves: Vec<Vec<u8>> = vector_snapshots()
+        .into_iter()
+        .take(2)
+        .enumerate()
+        .map(|(i, s)| {
+            let mut b = Snapshot { version: 3, ..s }.to_bytes();
+            let facts = if i == 0 {
+                vector_business_facts(1)
+            } else {
+                BusinessFacts::default()
+            };
+            b.extend_from_slice(&facts.to_bytes());
+            b
+        })
+        .collect();
+    leaves.push(vector_bill_leaves()[0].to_bytes());
+    leaves.extend((1..=2u8).map(|i| {
+        BusinessLeaf {
+            version: 1,
+            network,
+            wallet: [0x40 + i; 32],
+            as_of: 1_800_000_000,
+            facts: vector_business_facts(i),
+        }
+        .to_bytes()
+    }));
+    let kinds = ["snapshot", "snapshot", "bill", "business", "business"];
+    let tree = Tree::build(&leaves).unwrap();
+    let out: Vec<Value> = leaves
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            json!({
+                "kind": kinds[i],
+                "bytes": hex::encode(l),
+                "leaf": hex::encode(token_snapshot::merkle::hash_leaf(l)),
+                "proof": tree.prove(i).iter().map(hex::encode).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    json!({
+        "description": "Two token snapshots in layout version 3 (the second's business never published), a bill leaf (layout version 1) and two business leaves (layout version 1) in one tree, in this order: each leaf's bytes, its hash, the tree's root and each leaf's proof (siblings from the bottom up). All hex.",
+        "root": hex::encode(tree.root()),
+        "leaves": out,
+    })
+}
+
+#[test]
+fn test_business_vectors_match_docs() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/business-leaf-vectors.json"
+    );
+    let built = build_business_vectors();
     if std::env::var("UPDATE_SNAPSHOT_VECTORS").is_ok() {
         let text = serde_json::to_string_pretty(&built).unwrap() + "\n";
         std::fs::write(path, text).unwrap();

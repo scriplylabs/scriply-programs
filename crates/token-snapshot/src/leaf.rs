@@ -8,8 +8,7 @@
 /// The first byte of a leaf that isn't a token's snapshot is at least this.
 pub const LEAF_KIND_MIN: u8 = 0x80;
 
-/// A business leaf, about the business behind a wallet: reserved, not yet
-/// laid out.
+/// A business leaf: the facts about the business behind a wallet.
 pub const LEAF_KIND_BUSINESS: u8 = 0x81;
 
 /// A bill leaf: an approved offer of a bill for early payment.
@@ -40,6 +39,10 @@ impl<'a> Reader<'a> {
 
     pub(crate) fn u16(&mut self) -> u16 {
         u16::from_le_bytes(self.array())
+    }
+
+    pub(crate) fn u32(&mut self) -> u32 {
+        u32::from_le_bytes(self.array())
     }
 
     pub(crate) fn u64(&mut self) -> u64 {
