@@ -10,8 +10,7 @@
 use serde_json::{json, Value};
 use token_snapshot::{
     merkle::Tree, BillLeaf, BusinessFacts, BusinessLeaf, Snapshot, DOCUMENT_PURCHASE_ORDER,
-    DOCUMENT_VENDOR_INVOICE, PROCEDURE_CASH_AGREED_TO_BANK, PROCEDURE_RECEIVABLES_CONFIRMED,
-    PROCEDURE_RECEIVABLES_TIED_TO_INVOICES, RATIO_NONE, SIGNED_RATIO_NONE,
+    DOCUMENT_VENDOR_INVOICE, NEVER_PUBLISHED,
 };
 
 fn vector_snapshots() -> Vec<Snapshot> {
@@ -162,27 +161,16 @@ fn vector_business_facts(i: u8) -> BusinessFacts {
     BusinessFacts {
         period_end_exclusive: 1_798_761_600 + 86_400 * i as i64,
         commitment: [0xe0 + i; 32],
-        current_ratio_bps: 15_000 + 1_000 * i as u32,
-        quick_ratio_bps: 11_000 + 500 * i as u32,
-        cash_to_current_assets_bps: 3_000 + i as u32,
-        cash_to_current_liabilities_bps: if i == 2 { RATIO_NONE } else { 4_000 + i as u32 },
-        liabilities_to_assets_bps: 5_000 - 100 * i as u32,
-        operating_margin_bps: if i == 2 {
-            SIGNED_RATIO_NONE
-        } else {
-            -300 * i as i32
-        },
-        receivables_turnover_bps: 60_000 + 10_000 * i as u32,
-        procedures_performed: if i == 2 {
-            PROCEDURE_CASH_AGREED_TO_BANK
-        } else {
-            PROCEDURE_CASH_AGREED_TO_BANK
-                | PROCEDURE_RECEIVABLES_TIED_TO_INVOICES
-                | PROCEDURE_RECEIVABLES_CONFIRMED
-        },
-        cash_agreed_to_bank_bps: 9_900 + i as u32,
-        receivables_tied_to_invoices_bps: if i == 2 { 0 } else { 10_000 },
-        receivables_confirmed_bps: if i == 2 { 0 } else { 5_000 + i as u32 },
+        current_ratio_bps: Some(15_000 + 1_000 * i as u32),
+        quick_ratio_bps: Some(11_000 + 500 * i as u32),
+        cash_to_current_assets_bps: Some(3_000 + i as u32),
+        cash_to_current_liabilities_bps: (i != 2).then_some(4_000 + i as u32),
+        liabilities_to_assets_bps: Some(5_000 - 100 * i as u32),
+        operating_margin_bps: (i != 2).then_some(-300 * i as i32),
+        receivables_turnover_bps: Some(60_000 + 10_000 * i as u32),
+        cash_agreed_to_bank_bps: Some(9_900 + i as u32),
+        receivables_tied_to_invoices_bps: (i != 2).then_some(10_000),
+        receivables_confirmed_bps: (i != 2).then_some(5_000 + i as u32),
     }
 }
 
@@ -197,12 +185,11 @@ fn build_business_vectors() -> Value {
         .enumerate()
         .map(|(i, s)| {
             let mut b = Snapshot { version: 3, ..s }.to_bytes();
-            let facts = if i == 0 {
-                vector_business_facts(1)
+            if i == 0 {
+                b.extend_from_slice(&vector_business_facts(1).to_bytes());
             } else {
-                BusinessFacts::default()
-            };
-            b.extend_from_slice(&facts.to_bytes());
+                b.extend_from_slice(&NEVER_PUBLISHED);
+            }
             b
         })
         .collect();

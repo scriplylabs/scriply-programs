@@ -23,11 +23,19 @@ pub const SNAPSHOT_BUSINESS_VERSION: u8 = 3;
 /// The bytes of a snapshot in layout version 3.
 pub const SNAPSHOT_V3_LEN: usize = SNAPSHOT_LEN + BUSINESS_FACTS_LEN;
 
-/// An unsigned ratio with no value: its denominator was zero.
+/// How the layout writes an unsigned ratio with no value (its denominator
+/// was zero). `BusinessFacts` reads it as `None`, so no rule compares it as
+/// a number.
 pub const RATIO_NONE: u32 = u32::MAX;
 
-/// A signed ratio (`operating_margin_bps`) with no value: no revenue.
+/// How the layout writes `operating_margin_bps` with no value (no revenue).
+/// `BusinessFacts` reads it as `None`, so no rule compares it as a number.
 pub const SIGNED_RATIO_NONE: i32 = i32::MAX;
+
+/// The facts a version 3 snapshot appends when its business never
+/// published: every byte 0. `BusinessFacts::parse_snapshot` reads them as
+/// `None`.
+pub const NEVER_PUBLISHED: [u8; BUSINESS_FACTS_LEN] = [0; BUSINESS_FACTS_LEN];
 
 /// Which procedures the signer performed on the published statements, as
 /// bits of `procedures_performed`.
@@ -48,61 +56,94 @@ pub enum BusinessLeafError {
 
 /// What a business published about itself and what the signer found when
 /// it checked it. Ratios are in basis points, truncated toward zero, and
-/// `RATIO_NONE` (or `SIGNED_RATIO_NONE`) when their denominator was zero. A
-/// business that never published has every field 0, `period_end_exclusive`
-/// included.
+/// `None` when their denominator was zero; a procedure's result is `None`
+/// when the signer didn't perform it. A pool decides what `None` means for
+/// its own rule: it is never the best or the worst value.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BusinessFacts {
     /// The end of the published statements' period, unix seconds: the
     /// balance sheet's date, and the midnight after the income statement's
-    /// last day. 0 when the business never published.
+    /// last day.
     pub period_end_exclusive: i64,
     /// HMAC-SHA256 of the statements, keyed by a key only the signer and
     /// the business hold; the business opens it to a lender it chooses.
     pub commitment: [u8; 32],
-    pub current_ratio_bps: u32,
-    pub quick_ratio_bps: u32,
-    pub cash_to_current_assets_bps: u32,
-    pub cash_to_current_liabilities_bps: u32,
-    pub liabilities_to_assets_bps: u32,
+    pub current_ratio_bps: Option<u32>,
+    pub quick_ratio_bps: Option<u32>,
+    pub cash_to_current_assets_bps: Option<u32>,
+    pub cash_to_current_liabilities_bps: Option<u32>,
+    pub liabilities_to_assets_bps: Option<u32>,
     /// Operating income to revenue over the statements' year; negative for
     /// a loss.
-    pub operating_margin_bps: i32,
+    pub operating_margin_bps: Option<i32>,
     /// The year's revenue to receivables at `period_end_exclusive`.
-    pub receivables_turnover_bps: u32,
-    /// Which procedures the signer performed: `PROCEDURE_*` bits. A result
-    /// whose bit is clear is 0 and means nothing.
-    pub procedures_performed: u8,
+    pub receivables_turnover_bps: Option<u32>,
     /// The bank's cash at `period_end_exclusive`, from the business's
-    /// linked bank accounts, to the statements' cash.
-    pub cash_agreed_to_bank_bps: u32,
+    /// linked bank accounts, to the statements' cash
+    /// (`PROCEDURE_CASH_AGREED_TO_BANK`).
+    pub cash_agreed_to_bank_bps: Option<u32>,
     /// The invoices open at `period_end_exclusive` to the statements'
-    /// receivables.
-    pub receivables_tied_to_invoices_bps: u32,
-    /// Of those invoices, the share by amount their customers confirmed.
-    pub receivables_confirmed_bps: u32,
+    /// receivables (`PROCEDURE_RECEIVABLES_TIED_TO_INVOICES`).
+    pub receivables_tied_to_invoices_bps: Option<u32>,
+    /// Of those invoices, the share by amount their customers confirmed
+    /// (`PROCEDURE_RECEIVABLES_CONFIRMED`).
+    pub receivables_confirmed_bps: Option<u32>,
+}
+
+fn read_ratio(v: u32) -> Option<u32> {
+    (v != RATIO_NONE).then_some(v)
+}
+
+fn read_signed_ratio(v: i32) -> Option<i32> {
+    (v != SIGNED_RATIO_NONE).then_some(v)
+}
+
+fn read_procedure(performed: u8, bit: u8, v: u32) -> Option<u32> {
+    (performed & bit != 0).then_some(v)
 }
 
 impl BusinessFacts {
     fn read(r: &mut Reader) -> Self {
+        let period_end_exclusive = r.u64() as i64;
+        let commitment = r.array();
+        let current_ratio_bps = read_ratio(r.u32());
+        let quick_ratio_bps = read_ratio(r.u32());
+        let cash_to_current_assets_bps = read_ratio(r.u32());
+        let cash_to_current_liabilities_bps = read_ratio(r.u32());
+        let liabilities_to_assets_bps = read_ratio(r.u32());
+        let operating_margin_bps = read_signed_ratio(r.u32() as i32);
+        let receivables_turnover_bps = read_ratio(r.u32());
+        let performed = r.u8();
         Self {
-            period_end_exclusive: r.u64() as i64,
-            commitment: r.array(),
-            current_ratio_bps: r.u32(),
-            quick_ratio_bps: r.u32(),
-            cash_to_current_assets_bps: r.u32(),
-            cash_to_current_liabilities_bps: r.u32(),
-            liabilities_to_assets_bps: r.u32(),
-            operating_margin_bps: r.u32() as i32,
-            receivables_turnover_bps: r.u32(),
-            procedures_performed: r.u8(),
-            cash_agreed_to_bank_bps: r.u32(),
-            receivables_tied_to_invoices_bps: r.u32(),
-            receivables_confirmed_bps: r.u32(),
+            period_end_exclusive,
+            commitment,
+            current_ratio_bps,
+            quick_ratio_bps,
+            cash_to_current_assets_bps,
+            cash_to_current_liabilities_bps,
+            liabilities_to_assets_bps,
+            operating_margin_bps,
+            receivables_turnover_bps,
+            cash_agreed_to_bank_bps: read_procedure(
+                performed,
+                PROCEDURE_CASH_AGREED_TO_BANK,
+                r.u32(),
+            ),
+            receivables_tied_to_invoices_bps: read_procedure(
+                performed,
+                PROCEDURE_RECEIVABLES_TIED_TO_INVOICES,
+                r.u32(),
+            ),
+            receivables_confirmed_bps: read_procedure(
+                performed,
+                PROCEDURE_RECEIVABLES_CONFIRMED,
+                r.u32(),
+            ),
         }
     }
 
-    /// The facts' BUSINESS_FACTS_LEN bytes.
+    /// The facts' BUSINESS_FACTS_LEN bytes. A ratio is written as given:
+    /// the signer clamps one past its field first (docs/business-leaf.md).
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut b = Vec::with_capacity(BUSINESS_FACTS_LEN);
         b.extend_from_slice(&self.period_end_exclusive.to_le_bytes());
@@ -114,39 +155,64 @@ impl BusinessFacts {
             self.cash_to_current_liabilities_bps,
             self.liabilities_to_assets_bps,
         ] {
-            b.extend_from_slice(&v.to_le_bytes());
+            b.extend_from_slice(&v.unwrap_or(RATIO_NONE).to_le_bytes());
         }
-        b.extend_from_slice(&self.operating_margin_bps.to_le_bytes());
-        b.extend_from_slice(&self.receivables_turnover_bps.to_le_bytes());
-        b.push(self.procedures_performed);
-        for v in [
-            self.cash_agreed_to_bank_bps,
-            self.receivables_tied_to_invoices_bps,
-            self.receivables_confirmed_bps,
-        ] {
-            b.extend_from_slice(&v.to_le_bytes());
+        b.extend_from_slice(
+            &self
+                .operating_margin_bps
+                .unwrap_or(SIGNED_RATIO_NONE)
+                .to_le_bytes(),
+        );
+        b.extend_from_slice(
+            &self
+                .receivables_turnover_bps
+                .unwrap_or(RATIO_NONE)
+                .to_le_bytes(),
+        );
+        let procedures = [
+            (PROCEDURE_CASH_AGREED_TO_BANK, self.cash_agreed_to_bank_bps),
+            (
+                PROCEDURE_RECEIVABLES_TIED_TO_INVOICES,
+                self.receivables_tied_to_invoices_bps,
+            ),
+            (
+                PROCEDURE_RECEIVABLES_CONFIRMED,
+                self.receivables_confirmed_bps,
+            ),
+        ];
+        b.push(
+            procedures
+                .iter()
+                .filter(|(_, v)| v.is_some())
+                .fold(0, |bits, (bit, _)| bits | bit),
+        );
+        for (_, v) in procedures {
+            b.extend_from_slice(&v.unwrap_or(0).to_le_bytes());
         }
         b
     }
 
-    /// The business's facts a token's snapshot carries: those appended from
-    /// layout version 3, or all 0 for a version 2 snapshot, which has none.
-    /// Refuses what `Snapshot::parse` refuses, and a version 3 or later
-    /// snapshot shorter than SNAPSHOT_V3_LEN.
+    /// The business's facts a token's snapshot carries, appended from
+    /// layout version 3: `None` for a version 2 snapshot, which has none,
+    /// and for a business that never published (`NEVER_PUBLISHED`), so a
+    /// pool can't read missing figures as figures. Refuses what
+    /// `Snapshot::parse` refuses, and a version 3 or later snapshot shorter
+    /// than SNAPSHOT_V3_LEN.
     ///
     /// ```ignore
     /// let snap = Snapshot::parse(&bytes)?;
-    /// let business = BusinessFacts::parse_snapshot(&bytes)?;
+    /// let Some(business) = BusinessFacts::parse_snapshot(&bytes)? else { return refuse() };
     /// ```
-    pub fn parse_snapshot(bytes: &[u8]) -> Result<Self, SnapshotError> {
+    pub fn parse_snapshot(bytes: &[u8]) -> Result<Option<Self>, SnapshotError> {
         let snapshot = crate::Snapshot::parse(bytes)?;
         if snapshot.version < SNAPSHOT_BUSINESS_VERSION {
-            return Ok(Self::default());
+            return Ok(None);
         }
         if bytes.len() < SNAPSHOT_V3_LEN {
             return Err(SnapshotError::TooShort);
         }
-        Ok(Self::read(&mut Reader::new(bytes, SNAPSHOT_LEN)))
+        let facts = Self::read(&mut Reader::new(bytes, SNAPSHOT_LEN));
+        Ok((facts.period_end_exclusive != 0).then_some(facts))
     }
 }
 
@@ -215,17 +281,16 @@ mod tests {
         BusinessFacts {
             period_end_exclusive: 1_798_761_600,
             commitment: [3; 32],
-            current_ratio_bps: 18_500,
-            quick_ratio_bps: 12_000,
-            cash_to_current_assets_bps: 3_100,
-            cash_to_current_liabilities_bps: RATIO_NONE,
-            liabilities_to_assets_bps: 4_200,
-            operating_margin_bps: -750,
-            receivables_turnover_bps: 81_000,
-            procedures_performed: PROCEDURE_CASH_AGREED_TO_BANK | PROCEDURE_RECEIVABLES_CONFIRMED,
-            cash_agreed_to_bank_bps: 9_870,
-            receivables_tied_to_invoices_bps: 0,
-            receivables_confirmed_bps: 6_400,
+            current_ratio_bps: Some(18_500),
+            quick_ratio_bps: Some(12_000),
+            cash_to_current_assets_bps: Some(3_100),
+            cash_to_current_liabilities_bps: None,
+            liabilities_to_assets_bps: Some(4_200),
+            operating_margin_bps: Some(-750),
+            receivables_turnover_bps: Some(81_000),
+            cash_agreed_to_bank_bps: Some(9_870),
+            receivables_tied_to_invoices_bps: None,
+            receivables_confirmed_bps: Some(6_400),
         }
     }
 
@@ -263,23 +328,21 @@ mod tests {
         assert_eq!(&b[50..58], &l.as_of.to_le_bytes());
         assert_eq!(&b[58..66], &f.period_end_exclusive.to_le_bytes());
         assert_eq!(&b[66..98], &f.commitment);
-        assert_eq!(&b[98..102], &f.current_ratio_bps.to_le_bytes());
-        assert_eq!(&b[102..106], &f.quick_ratio_bps.to_le_bytes());
-        assert_eq!(&b[106..110], &f.cash_to_current_assets_bps.to_le_bytes());
+        assert_eq!(&b[98..102], &18_500u32.to_le_bytes());
+        assert_eq!(&b[102..106], &12_000u32.to_le_bytes());
+        assert_eq!(&b[106..110], &3_100u32.to_le_bytes());
+        assert_eq!(&b[110..114], &[0xff; 4], "no value is the type's maximum");
+        assert_eq!(&b[114..118], &4_200u32.to_le_bytes());
+        assert_eq!(&b[118..122], &(-750i32).to_le_bytes());
+        assert_eq!(&b[122..126], &81_000u32.to_le_bytes());
         assert_eq!(
-            &b[110..114],
-            &f.cash_to_current_liabilities_bps.to_le_bytes()
+            b[126],
+            PROCEDURE_CASH_AGREED_TO_BANK | PROCEDURE_RECEIVABLES_CONFIRMED
         );
-        assert_eq!(&b[114..118], &f.liabilities_to_assets_bps.to_le_bytes());
-        assert_eq!(&b[118..122], &f.operating_margin_bps.to_le_bytes());
-        assert_eq!(&b[122..126], &f.receivables_turnover_bps.to_le_bytes());
-        assert_eq!(b[126], f.procedures_performed);
-        assert_eq!(&b[127..131], &f.cash_agreed_to_bank_bps.to_le_bytes());
-        assert_eq!(
-            &b[131..135],
-            &f.receivables_tied_to_invoices_bps.to_le_bytes()
-        );
-        assert_eq!(&b[135..139], &f.receivables_confirmed_bps.to_le_bytes());
+        assert_eq!(&b[127..131], &9_870u32.to_le_bytes());
+        assert_eq!(&b[131..135], &[0; 4], "a procedure not performed is 0");
+        assert_eq!(&b[135..139], &6_400u32.to_le_bytes());
+        assert_eq!(f.period_end_exclusive, 1_798_761_600);
     }
 
     #[test]
@@ -346,7 +409,7 @@ mod tests {
         assert_eq!(SNAPSHOT_V3_LEN, 253);
         assert_eq!(
             BusinessFacts::parse_snapshot(&bytes).unwrap(),
-            sample_facts()
+            Some(sample_facts())
         );
         // A program built for version 2 still reads its prefix.
         assert_eq!(Snapshot::parse(&bytes).unwrap().version, 3);
@@ -359,10 +422,49 @@ mod tests {
             ..Snapshot::default()
         }
         .to_bytes();
-        assert_eq!(
-            BusinessFacts::parse_snapshot(&bytes).unwrap(),
-            BusinessFacts::default()
-        );
+        assert_eq!(BusinessFacts::parse_snapshot(&bytes).unwrap(), None);
+    }
+
+    #[test]
+    fn test_a_business_that_never_published_has_no_facts() {
+        let mut bytes = Snapshot {
+            version: 3,
+            ..Snapshot::default()
+        }
+        .to_bytes();
+        bytes.extend_from_slice(&NEVER_PUBLISHED);
+        assert_eq!(BusinessFacts::parse_snapshot(&bytes).unwrap(), None);
+    }
+
+    /// A ratio with no value, or a procedure not performed, is never a
+    /// number a rule compares: zero revenue doesn't read as the best margin.
+    #[test]
+    fn test_no_value_is_none_not_a_number() {
+        let facts = BusinessFacts {
+            operating_margin_bps: None,
+            current_ratio_bps: None,
+            cash_agreed_to_bank_bps: None,
+            ..sample_facts()
+        };
+        let mut b = Snapshot {
+            version: 3,
+            ..Snapshot::default()
+        }
+        .to_bytes();
+        b.extend_from_slice(&facts.to_bytes());
+        let read = BusinessFacts::parse_snapshot(&b).unwrap().unwrap();
+        assert_eq!(read.operating_margin_bps, None);
+        assert_eq!(read.current_ratio_bps, None);
+        assert_eq!(read.cash_agreed_to_bank_bps, None);
+        assert_eq!(read, facts);
+    }
+
+    #[test]
+    fn test_a_result_whose_bit_is_clear_is_none() {
+        let mut b = sample().to_bytes();
+        b[131..135].copy_from_slice(&7u32.to_le_bytes());
+        let read = BusinessLeaf::parse(&b).unwrap();
+        assert_eq!(read.facts.receivables_tied_to_invoices_bps, None);
     }
 
     #[test]
