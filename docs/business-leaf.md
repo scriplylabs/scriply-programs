@@ -48,6 +48,8 @@ Version 1 is 139 bytes; the 81 bytes from offset 58 are the business's facts, wh
 ## Rules
 
 - **The layout only grows at its end,** as the snapshot's does: a program with no admin can never change what it reads. Facts the signer reports later (when the books were closed and last read, the bank's cash now, what the business owes supplier pools, an accountant's review of the period) are appended.
+- **Freshness is the pool's to judge, by `periodEndExclusive`.** A leaf's `asOf` is the root's, so a leaf posted today can carry figures a year old. A pool sets how old a period it accepts.
+- **Version 1 doesn't say whether cash has left since the period.** It carries no source dates (when the books were last read, when the bank last refreshed, when customers confirmed) and no bank cash now, so a business can publish the morning after a large payment and its figures still show the cash. A pool written against version 1 either accepts that or waits for the fields appended later.
 - **Naming the network and the wallet stops replays:** a devnet leaf, or another wallet's, can't be used for this wallet on this network.
 - **One leaf per wallet.** A signer puts each wallet in a tree at most once, from the business's latest publication: a later `periodEndExclusive` replaces an earlier one, and the same period published again corrects it.
 - **Figures stay private.** Only ratios, procedure results and the commitment are public. A ratio can't be reversed into a figure, and the commitment can't be tested against a guess without its key.
