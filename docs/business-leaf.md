@@ -16,11 +16,11 @@ The business publishes its balance sheet and income statement for a period it pi
 | Receivables tied to invoices | `2` | The invoices open at `periodEndExclusive`, as the signer reads them from the business's accounting system or ledger, to the statements' receivables. Receivables raised by journal entries, without invoices, lower it |
 | Receivables confirmed | `4` | Of those open invoices, the share by amount whose customers confirmed them to the business through the signer |
 
-A procedure the signer couldn't perform (no linked bank account, no receivables) has its bit clear and its result 0, which means nothing.
+A procedure the signer couldn't perform (no linked bank account, no receivables) has its bit clear and its result 0, which means nothing; `BusinessFacts` reads it as `None`.
 
 ## Layout
 
-Fixed-width fields, little-endian, no padding. Dates are unix seconds (i64). Ratios are basis points (u32, and `operatingMargin` i32), truncated toward zero; a ratio whose denominator is zero has no value and is the type's maximum (`0xffffffff`, or `0x7fffffff` for `operatingMargin`).
+Fixed-width fields, little-endian, no padding. Dates are unix seconds (i64). Ratios are basis points (u32, and `operatingMargin` i32), truncated toward zero. A ratio whose denominator is zero has no value and is the type's maximum (`0xffffffff`, or `0x7fffffff` for `operatingMargin`); `BusinessFacts` reads it as `None`, so a pool's rule decides what no value means and never compares it as a number (zero revenue isn't the best margin). A signer clamps a value outside its field to the field, below the maximum, before writing it: a u32 ratio to `0` through `0xfffffffe` (a negative one, from a negative balance, is `0`), `operatingMargin` to `-0x80000000` through `0x7ffffffe`, so no value written ever reads as none or wraps.
 
 | Offset | Size | Field | Meaning |
 |---:|---:|---|---|
@@ -30,7 +30,7 @@ Fixed-width fields, little-endian, no padding. Dates are unix seconds (i64). Rat
 | 18 | 32 | `wallet` | The business's wallet |
 | 50 | 8 | `asOf` | The root's `asOf` |
 | 58 | 8 | `periodEndExclusive` | The end of the published period: the balance sheet's date, and the midnight after the income statement's last day. The income statement covers the 12 months before it |
-| 66 | 32 | `commitment` | HMAC-SHA256 of the statements, keyed by a key only the signer and the business hold. The business shows a lender the statements and the key, and the lender checks them against this |
+| 66 | 32 | `commitment` | HMAC-SHA256, keyed by a key only the signer and the business hold, of the statements' encoding. The signer gives the business both; the business gives a lender it chooses the encoded statements and the key, and the lender checks that the HMAC of those bytes under that key is this. The encoding is deterministic CBOR (RFC 8949 §4.2.1) of the statements: their period, currency, and balance sheet and income statement lines by account, so the bytes checked are the bytes read. A change to what is hashed is a new layout version |
 | 98 | 4 | `currentRatio` | Current assets to current liabilities |
 | 102 | 4 | `quickRatio` | Cash and receivables to current liabilities |
 | 106 | 4 | `cashToCurrentAssets` | The statements' cash to current assets |
