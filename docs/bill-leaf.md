@@ -11,10 +11,10 @@ Every leaf in a tree says what it is in its first byte, which the leaf's hash co
 | First byte | Kind |
 |---|---|
 | `0x01`–`0x7f` | A token's snapshot; the byte is its layout version (`snapshot.md`) |
-| `0x81` | A business leaf, about the business behind a wallet: reserved |
+| `0x81` | A business leaf, about the business behind a wallet (`business-leaf.md`) |
 | `0x82` | A bill leaf (below) |
 
-A leaf whose first byte is `0x80` or more has its own layout version in its second byte. `token_snapshot::Snapshot::parse` refuses every kind but a snapshot, and `BillLeaf::parse` every kind but a bill leaf.
+A leaf whose first byte is `0x80` or more has its own layout version in its second byte. `token_snapshot::Snapshot::parse` refuses every kind but a snapshot, `BillLeaf::parse` every kind but a bill leaf, and `BusinessLeaf::parse` every kind but a business leaf.
 
 ## Layout
 

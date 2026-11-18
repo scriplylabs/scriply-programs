@@ -1,4 +1,4 @@
-# Token snapshot, layout version 2
+# Token snapshot, layout version 3
 
 A snapshot is a set of facts about one receivables token on one network at one time, which a signer (a business that verifies orgs and their receivables, such as Scriply) vouches for. A signer commits every token's latest snapshot at once in a Merkle tree and posts its root on chain (below), and a program accepts a token's snapshot proven against a root posted by one of the keys it pinned when it was created.
 
@@ -10,7 +10,7 @@ Fixed-width fields, little-endian, no padding. Amounts are in the token's base u
 
 | Offset | Size | Field | Meaning |
 |---:|---:|---|---|
-| 0 | 1 | `version` | `2`. A later version only appends fields |
+| 0 | 1 | `version` | `3`. A later version only appends fields |
 | 1 | 16 | `network` | The network ID in ASCII, padded with zeros: `sol`, `sol-devnet` |
 | 17 | 32 | `mint` | The token's mint address |
 | 49 | 8 | `asOf` | When the facts were true, unix seconds (i64) |
@@ -34,11 +34,13 @@ Fixed-width fields, little-endian, no padding. Amounts are in the token's base u
 | 168 | 2 | `weightedDaysInBurnDebt` | Over the 365 days before `asOf`, the unit-days of burn debt owed (debt still owed counts up to `asOf`) over the units owed in that window (owed at its start or recorded during it), to the nearest day. It says how long a unit owed stayed owed, not how many were: one unit owed all year gives 365, as a thousand do. Version 2 |
 | 170 | 2 | `daysBurnDebtOverdue` | Days in the 365 before `asOf` that the token's burn debt was overdue (owed past its deadline), rounded up, so any time overdue counts. Version 2 |
 
-Version 2 is 172 bytes; version 1 was its first 168, without the burn-debt history. `snapshot::tests::test_layout_offsets_are_pinned` pins these offsets.
+| 172 | 81 | business facts | The facts about the business that issued the token, as its business leaf has them from its offset 58 (`business-leaf.md`): its published period's end, the commitment to its statements, its ratios and the procedures the signer performed on them. All 0, `periodEndExclusive` included, when the business never published. Version 3 |
+
+Version 3 is 253 bytes; version 2 was its first 172, and version 1 its first 168, without the burn-debt history. `snapshot::tests::test_layout_offsets_are_pinned` pins these offsets, and `business::tests` the business facts'. `Snapshot::parse` reads the first 172 bytes of any version; `BusinessFacts::parse_snapshot` reads the business facts, all 0 for a version 2 snapshot.
 
 ## Rules
 
-- **The layout only grows at its end.** A program with no admin can never change what it reads, so each field's offset, unit and meaning are permanent. A field whose meaning would change is a new field, appended. A program built for version 2 reads the first 172 bytes of any later version and ignores the rest; the Merkle leaf still covers all of them.
+- **The layout only grows at its end.** A program with no admin can never change what it reads, so each field's offset, unit and meaning are permanent. A field whose meaning would change is a new field, appended. A program built for version 2 reads the first 172 bytes of any later version, version 3 included, and ignores the rest; the Merkle leaf still covers all of them.
 - **Naming the network and the mint stops replays:** a devnet snapshot, or another token's, can't be used for this token on this network.
 - **A snapshot is checked against the chain where the chain can say:** a borrow is refused when the mint's supply is above `networkSupply`, since units minted after the snapshot are outside its facts. A supply below it is accepted: roots are posted daily, burns happen as invoices are paid, and a burn only shrinks what the facts describe.
 - **The layout evolves freely on devnet and freezes when the first mainnet pool pins a signer's key.**
@@ -54,7 +56,7 @@ A signer commits every token's latest snapshot at once by posting one Merkle roo
 - **Node:** `sha256(0x01 || lo || hi)`, where `lo` is the smaller of the two children compared byte by byte. Sorting the pair means a proof is only the siblings, bottom up, with no left-or-right.
 - **Odd levels:** the last node of a level with an odd count moves up unchanged, and its proof skips that level.
 - **One leaf per token.** A signer puts each mint in a tree at most once; a program can't check this, so it is part of what the signer vouches for.
-- **Other kinds of leaf share the tree.** A leaf whose first byte is `0x80` or more is not a token's snapshot: a bill leaf (`0x82`, `bill-leaf.md`), and later a business leaf (`0x81`). `Snapshot::parse` refuses them, so a pool reading snapshots can't be handed one.
+- **Other kinds of leaf share the tree.** A leaf whose first byte is `0x80` or more is not a token's snapshot: a business leaf (`0x81`, `business-leaf.md`) or a bill leaf (`0x82`, `bill-leaf.md`). `Snapshot::parse` refuses them, so a pool reading snapshots can't be handed one.
 - **Proofs are at most 32 hashes** (a tree of 2^32 leaves).
 
 The prefixes keep a node's two children from passing as a snapshot. `crates/token-snapshot` implements this (`merkle::verify` on chain, `merkle::Tree` off it), and `docs/snapshot-vectors.json` has snapshots, leaves, a root and proofs for a signer or keeper written in another language to check itself against.
@@ -63,4 +65,4 @@ A signer's account keeps its latest 8 roots, each with when its snapshots were t
 
 Each posted root names its `scheme`, the tree's construction above (`MERKLE_SCHEME_V1`); the program takes only schemes it knows, and a later construction is a new scheme, so no root is read by the wrong rules. When no token's facts changed, the same root is posted again, and `find` returns its newest post.
 
-**Proof size limits a transaction.** A proof for a tree of 5,000 tokens is 13 hashes (416 bytes) beside the 172-byte snapshot. A v0 transaction (at most 1232 bytes) holds a borrow with a proof of at most 5 hashes (32 tokens); a v1 transaction (at most 4096 bytes) holds one with a proof of 20 hashes (about a million tokens) in 1701 bytes, and marks several tokens' loans. A feed account per token, which anyone writes once from a proof and pools then read with no proof at all, would make borrows and marks smaller still, and let other programs read the facts.
+**Proof size limits a transaction.** A proof for a tree of 5,000 tokens is 13 hashes (416 bytes) beside the 253-byte snapshot (172 bytes in version 2). A v0 transaction (at most 1232 bytes) held a borrow with a proof of at most 5 hashes (32 tokens) with a version 2 snapshot, and holds one of at most 2 (4 leaves, of every kind, since business and bill leaves share the tree) with version 3's 81 more bytes, so borrows and marks go in v1 transactions: one (at most 4096 bytes) holds a borrow with a proof of 20 hashes (about a million tokens) in 1782 bytes, and marks several tokens' loans. A feed account per token, which anyone writes once from a proof and pools then read with no proof at all, would make borrows and marks smaller still, and let other programs read the facts.
