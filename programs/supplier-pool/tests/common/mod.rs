@@ -1,6 +1,8 @@
 //! A test chain with the supplier-pool and snapshot-roots programs and a
 //! USDC-like token: a pool trusting the test's own signer, an anchor, and a
-//! supplier whose address an offer commits to.
+//! supplier whose address an offer commits to. Every wallet the test makes
+//! is a business with a clean record in each tree it posts, unless the test
+//! sets another (`set_record`) or takes its leaf away (`forget_business`).
 
 #![allow(dead_code)]
 // LiteSVM's own result type; its error is large, and tests don't care.
@@ -22,7 +24,8 @@ use {
     snapshot_roots::{
         token_snapshot::{
             merkle::{Tree, MERKLE_SCHEME_V1},
-            BillLeaf, Snapshot, DOCUMENT_PROOF_OF_DELIVERY, DOCUMENT_VENDOR_INVOICE,
+            AsOfFacts, BillLeaf, BusinessFacts, BusinessLeaf, Snapshot, COUNT_TEN_OR_MORE,
+            DOCUMENT_PROOF_OF_DELIVERY, DOCUMENT_VENDOR_INVOICE,
         },
         PostedRoot, ROOTS_SEED,
     },
@@ -31,9 +34,12 @@ use {
     solana_sha256_hasher::hashv,
     solana_signer::Signer,
     solana_transaction::versioned::VersionedTransaction,
+    std::collections::HashMap,
     supplier_pool::{
-        claim_signature::claim_message, facts::ProvenLeaf, state::*, ANCHOR_SEED, CLAIMED_SEED,
-        ED25519_PROGRAM_ID, LISTING_SEED, POOL_SEED, SHARES_SEED,
+        claim_signature::claim_message,
+        facts::{LeafProof, ProvenLeaf},
+        state::*,
+        ANCHOR_SEED, CLAIMED_SEED, ED25519_PROGRAM_ID, LISTING_SEED, POOL_SEED, SHARES_SEED,
     },
 };
 
@@ -64,7 +70,9 @@ pub fn padded(s: &str) -> [u8; 16] {
 
 /// A shared pool on devnet paying in USDC for USD bills: 1.5% flat, the
 /// vendor's invoice required, terms up to 120 days, a day-old root at most,
-/// and no anchor taking more than half the pool.
+/// no anchor taking more than half the pool, and as pools/supplier-devnet.toml
+/// over the anchor's record: one listing up to 7 days overdue, nothing
+/// written off, any number repaid late.
 pub fn demo_params(signer: Pubkey) -> PoolParams {
     PoolParams {
         network: padded("sol-devnet"),
@@ -77,6 +85,13 @@ pub fn demo_params(signer: Pubkey) -> PoolParams {
             min_vendor_tenure: 0,
             min_vendor_volume: 0,
             max_term_days: 120,
+        },
+        business_rules: BusinessRules {
+            max_overdue_unpaid: 1,
+            max_days_overdue: 1,
+            max_written_off_unrepaid: 0,
+            max_written_off_in_year: 0,
+            max_repaid_late_in_year: COUNT_TEN_OR_MORE,
         },
         max_root_age: 2 * DAY as u32,
         max_owed_per_anchor: 15_000 * USDC,
@@ -100,6 +115,11 @@ pub struct Env {
     pub vault: Pubkey,
     pub now: i64,
     last_root_as_of: i64,
+    /// Each business wallet's record, put in a business leaf in every tree
+    /// posted: a version 1 leaf, which carries none, for `None`.
+    records: HashMap<Pubkey, Option<AsOfFacts>>,
+    /// The business leaves' proofs in the last tree posted.
+    business_proofs: HashMap<Pubkey, LeafProof>,
 }
 
 /// A bill offered and approved: its salt, its commitment and its leaf.
@@ -157,7 +177,11 @@ impl Env {
             vault: Pubkey::default(),
             now: T0,
             last_root_as_of: 0,
+            records: HashMap::new(),
+            business_proofs: HashMap::new(),
         };
+        let anchor = env.anchor.pubkey();
+        env.records.insert(anchor, Some(AsOfFacts::default()));
         env.set_time(T0);
         env.usdc = env.create_usdc();
         env.pool = pda(&[POOL_SEED, env.creator.pubkey().as_ref(), env.usdc.as_ref()]);
@@ -216,7 +240,56 @@ impl Env {
     pub fn wallet(&mut self) -> Keypair {
         let k = Keypair::new();
         self.svm.airdrop(&k.pubkey(), 10_000_000_000).unwrap();
+        self.records.insert(k.pubkey(), Some(AsOfFacts::default()));
         k
+    }
+
+    /// Sets `wallet`'s record in the trees posted from now on.
+    pub fn set_record(&mut self, wallet: &Pubkey, record: AsOfFacts) {
+        self.records.insert(*wallet, Some(record));
+    }
+
+    /// Puts `wallet` in the trees posted from now on with a version 1
+    /// business leaf, written before leaves carried a record.
+    pub fn set_version_1_leaf(&mut self, wallet: &Pubkey) {
+        self.records.insert(*wallet, None);
+    }
+
+    /// Leaves `wallet` out of the trees posted from now on, as a business
+    /// that never published.
+    pub fn forget_business(&mut self, wallet: &Pubkey) {
+        self.records.remove(wallet);
+    }
+
+    /// `wallet`'s business leaf as the trees put it: version 2 with
+    /// `record`, version 1 without.
+    pub fn business_leaf(
+        &self,
+        wallet: &Pubkey,
+        record: Option<AsOfFacts>,
+        as_of: i64,
+    ) -> BusinessLeaf {
+        BusinessLeaf {
+            version: if record.is_some() { 2 } else { 1 },
+            network: padded("sol-devnet"),
+            wallet: wallet.to_bytes(),
+            as_of,
+            facts: BusinessFacts {
+                period_end_exclusive: T0 - 30 * DAY,
+                commitment: [5; 32],
+                as_of_facts: record,
+                ..BusinessFacts::default()
+            },
+        }
+    }
+
+    /// `wallet`'s business leaf and proof in the last tree posted, or an
+    /// empty one when it has none.
+    pub fn business_proof(&self, wallet: &Pubkey) -> LeafProof {
+        self.business_proofs
+            .get(wallet)
+            .cloned()
+            .unwrap_or_default()
     }
 
     fn create_usdc(&mut self) -> Pubkey {
@@ -378,9 +451,9 @@ impl Env {
         }
     }
 
-    /// Posts a tree with the bill's leaf among a token's snapshot and
-    /// another bill's leaf, as the signer's daily tree holds them, and
-    /// returns the bill's proven leaf.
+    /// Posts a tree with the bill's leaf among a token's snapshot, another
+    /// bill's leaf and each business wallet's business leaf, as the signer's
+    /// daily tree holds them, and returns the bill's proven leaf.
     pub fn post_bill(&mut self, bill: &Bill) -> ProvenLeaf {
         let oracle = self.oracle.insecure_clone();
         self.post_bill_as(&oracle, bill)
@@ -393,7 +466,7 @@ impl Env {
         leaf.as_of = as_of;
         let mut other = leaf.clone();
         other.commitment = [0xee; 32];
-        let leaves = vec![
+        let mut leaves = vec![
             Snapshot {
                 version: 2,
                 network: padded("sol-devnet"),
@@ -403,7 +476,28 @@ impl Env {
             leaf.to_bytes(),
             other.to_bytes(),
         ];
+        let mut wallets: Vec<(Pubkey, Option<AsOfFacts>)> =
+            self.records.iter().map(|(w, r)| (*w, r.clone())).collect();
+        wallets.sort_by_key(|(w, _)| *w);
+        let first_business = leaves.len();
+        for (wallet, record) in &wallets {
+            leaves.push(self.business_leaf(wallet, record.clone(), as_of).to_bytes());
+        }
         let tree = Tree::build(&leaves).unwrap();
+        self.business_proofs = wallets
+            .iter()
+            .enumerate()
+            .map(|(i, (wallet, _))| {
+                let at = first_business + i;
+                (
+                    *wallet,
+                    LeafProof {
+                        leaf: leaves[at].clone(),
+                        proof: tree.prove(at),
+                    },
+                )
+            })
+            .collect();
         let ix = Instruction::new_with_bytes(
             snapshot_roots::id(),
             &snapshot_roots::instruction::PostRoot {
@@ -460,9 +554,27 @@ impl Env {
         proven: ProvenLeaf,
         signer: &Pubkey,
     ) -> Instruction {
+        let business = self.business_proof(anchor);
+        self.list_ix_with(anchor, commitment, proven, business, signer)
+    }
+
+    /// list_bill with the business leaf the test hands in.
+    pub fn list_ix_with(
+        &self,
+        anchor: &Pubkey,
+        commitment: [u8; 32],
+        proven: ProvenLeaf,
+        business: LeafProof,
+        signer: &Pubkey,
+    ) -> Instruction {
         Instruction::new_with_bytes(
             supplier_pool::id(),
-            &supplier_pool::instruction::ListBill { commitment, proven }.data(),
+            &supplier_pool::instruction::ListBill {
+                commitment,
+                proven,
+                business,
+            }
+            .data(),
             supplier_pool::accounts::ListBill {
                 anchor: *anchor,
                 pool: self.pool,

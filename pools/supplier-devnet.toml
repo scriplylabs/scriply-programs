@@ -56,3 +56,22 @@ min_vendor_tenure = 0
 min_vendor_volume = 0
 # The most days from listing a bill to its repayment date.
 max_term_days = 120
+
+[business_rules]
+# What the pool refuses from the anchor's record with supplier pools, in its
+# business leaf (docs/business-leaf.md): the highest band of each it takes.
+# A wallet whose business never published has no business leaf, and can't
+# list. Counts are in bands: 0 none, 1 one, 2 two to four, 3 five to nine,
+# 4 ten or more.
+# Listings paid out and unrepaid a whole day or more past their repayment
+# date, written off or not: one.
+max_overdue_unpaid = 1
+# The most days one of those is past its repayment date, in bands: 0 none,
+# 1 up to 7, 2 up to 30, 3 up to 60, 4 up to 90, 5 over 90. Up to 7.
+max_days_overdue = 1
+# Listings written off and still unrepaid: none.
+max_written_off_unrepaid = 0
+# Listings written off in the year before the root: none.
+max_written_off_in_year = 0
+# Listings repaid a whole day or more late in that year: any.
+max_repaid_late_in_year = 4

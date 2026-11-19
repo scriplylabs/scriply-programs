@@ -30,7 +30,7 @@ use solana_rpc_client::rpc_client::RpcClient;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use supplier_pool::{
-    state::{BillRules, FeeSchedule, PoolParams},
+    state::{BillRules, BusinessRules, FeeSchedule, PoolParams},
     POOL_SEED, SHARES_SEED,
 };
 
@@ -69,6 +69,7 @@ struct Config {
     write_off_after_days: u16,
     fee: FeeConfig,
     rules: RulesConfig,
+    business_rules: BusinessRulesConfig,
 }
 
 #[derive(Deserialize)]
@@ -91,6 +92,16 @@ struct RulesConfig {
     min_vendor_tenure: u8,
     min_vendor_volume: u8,
     max_term_days: u16,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BusinessRulesConfig {
+    max_overdue_unpaid: u8,
+    max_days_overdue: u8,
+    max_written_off_unrepaid: u8,
+    max_written_off_in_year: u8,
+    max_repaid_late_in_year: u8,
 }
 
 fn pad16(field: &str, s: &str) -> Result<[u8; 16], String> {
@@ -137,6 +148,13 @@ fn load_params(path: &PathBuf) -> Result<PoolParams, String> {
             min_vendor_tenure: c.rules.min_vendor_tenure,
             min_vendor_volume: c.rules.min_vendor_volume,
             max_term_days: c.rules.max_term_days,
+        },
+        business_rules: BusinessRules {
+            max_overdue_unpaid: c.business_rules.max_overdue_unpaid,
+            max_days_overdue: c.business_rules.max_days_overdue,
+            max_written_off_unrepaid: c.business_rules.max_written_off_unrepaid,
+            max_written_off_in_year: c.business_rules.max_written_off_in_year,
+            max_repaid_late_in_year: c.business_rules.max_repaid_late_in_year,
         },
         max_root_age: c.max_root_age_seconds,
         max_owed_per_anchor: c.max_owed_per_anchor,
@@ -217,5 +235,6 @@ mod tests {
         assert_eq!(&p.currency[..8], b"FIAT_USD");
         assert_eq!(p.fee, FeeSchedule::Flat { bps: 150 });
         assert_eq!(p.signers.len(), 1);
+        assert_eq!(p.business_rules.max_written_off_unrepaid, 0);
     }
 }

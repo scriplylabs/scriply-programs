@@ -5,12 +5,12 @@
 mod common;
 
 use common::*;
-use snapshot_roots::token_snapshot::DOCUMENT_PURCHASE_ORDER;
+use snapshot_roots::token_snapshot::{AsOfFacts, DOCUMENT_PURCHASE_ORDER};
 use solana_signer::Signer;
 use supplier_pool::{
     claim_signature::claim_message,
     events::{BillClaimed, ListingCancelled, ListingRepaid, ListingWrittenOff},
-    state::{AnchorAccount, FeeSchedule, Listing},
+    state::{AnchorAccount, BusinessRules, FeeSchedule, Listing},
     CLAIM_NETWORK_FEE_LAMPORTS,
 };
 
@@ -177,8 +177,8 @@ fn test_a_claimed_leaf_listed_by_another_wallet_pays_nothing_again() {
     let listing = env.list(&bill);
     env.claim(&listing, &bill).unwrap();
     // The claim revealed the salt; the leaf is still in the latest root.
-    let proven = env.post_bill(&bill);
     let stranger = env.wallet();
+    let proven = env.post_bill(&bill);
     let ix = env.list_ix(&stranger.pubkey(), bill.commitment, proven);
     env.send(&[ix], &[&stranger]).unwrap();
     let theirs = env.listing_of(&stranger.pubkey(), &bill.commitment);
@@ -492,8 +492,8 @@ fn test_someone_else_listing_the_leaf_leaves_the_anchors_listing_free() {
     let mut env = Env::new();
     env.deposit(100_000 * USDC);
     let bill = env.bill(10_000);
-    let proven = env.post_bill(&bill);
     let stranger = env.wallet();
+    let proven = env.post_bill(&bill);
     let ix = env.list_ix(&stranger.pubkey(), bill.commitment, proven.clone());
     env.send(&[ix], &[&stranger]).unwrap();
     let anchor = env.anchor.insecure_clone();
@@ -523,6 +523,16 @@ fn test_invalid_parameters_are_refused() {
         ),
         (
             Box::new(|p: &mut supplier_pool::PoolParams| p.rules.min_vendor_tenure = 5),
+            "InvalidBand",
+        ),
+        (
+            Box::new(|p: &mut supplier_pool::PoolParams| {
+                p.business_rules.max_written_off_in_year = 5
+            }),
+            "InvalidBand",
+        ),
+        (
+            Box::new(|p: &mut supplier_pool::PoolParams| p.business_rules.max_days_overdue = 6),
             "InvalidBand",
         ),
     ] {
@@ -587,4 +597,163 @@ fn test_every_listing_event_names_its_anchor_and_commitment() {
         (e.len(), e[0].listing, e[0].anchor, e[0].commitment),
         (1, listing, anchor.pubkey(), bill.commitment)
     );
+}
+
+fn list_with_record(record: AsOfFacts, name: Option<&str>) {
+    list_with_record_in(Env::new(), record, name);
+}
+
+fn list_with_record_in(mut env: Env, record: AsOfFacts, name: Option<&str>) {
+    env.deposit(100_000 * USDC);
+    let anchor = env.anchor.insecure_clone();
+    env.set_record(&anchor.pubkey(), record);
+    let bill = env.bill(10_000);
+    match name {
+        Some(name) => expect_listing_refused(&mut env, &bill, name),
+        None => {
+            env.list(&bill);
+        }
+    }
+}
+
+#[test]
+fn test_each_part_of_the_anchors_record_is_held_to_its_rule() {
+    use snapshot_roots::token_snapshot::{
+        COUNT_ONE, COUNT_TEN_OR_MORE, COUNT_TWO_TO_FOUR, DAYS_OVERDUE_1_TO_7, DAYS_OVERDUE_8_TO_30,
+    };
+    // At the pool's band, each lists; one band past it, each is refused
+    // naming its rule (demo_params: 1, 1, 0, 0, any).
+    let at = AsOfFacts {
+        overdue_unpaid: COUNT_ONE,
+        most_days_overdue: DAYS_OVERDUE_1_TO_7,
+        repaid_late_in_year: COUNT_TEN_OR_MORE,
+        ..AsOfFacts::default()
+    };
+    list_with_record(at.clone(), None);
+    type Worsen = fn(&mut AsOfFacts);
+    let cases: [(Worsen, &str); 4] = [
+        (
+            |r| r.overdue_unpaid = COUNT_TWO_TO_FOUR,
+            "TooManyOverdueUnpaid",
+        ),
+        (
+            |r| r.most_days_overdue = DAYS_OVERDUE_8_TO_30,
+            "TooManyDaysOverdue",
+        ),
+        (
+            |r| r.written_off_unrepaid = COUNT_ONE,
+            "TooManyWrittenOffUnrepaid",
+        ),
+        (
+            |r| r.written_off_in_year = COUNT_ONE,
+            "TooManyWrittenOffInYear",
+        ),
+    ];
+    for (worsen, name) in cases {
+        let mut record = at.clone();
+        worsen(&mut record);
+        list_with_record(record, Some(name));
+    }
+    let strict = Env::with_params(|p| p.business_rules.max_repaid_late_in_year = COUNT_ONE);
+    let late = AsOfFacts {
+        repaid_late_in_year: COUNT_TWO_TO_FOUR,
+        ..AsOfFacts::default()
+    };
+    list_with_record_in(strict, late, Some("TooManyRepaidLateInYear"));
+}
+
+#[test]
+fn test_a_pool_whose_business_rules_are_all_zero_takes_only_a_clean_record() {
+    use snapshot_roots::token_snapshot::{COUNT_ONE, DAYS_OVERDUE_1_TO_7};
+    // A pool created before the rules reads zeros where they now are.
+    let zero = BusinessRules {
+        max_overdue_unpaid: 0,
+        max_days_overdue: 0,
+        max_written_off_unrepaid: 0,
+        max_written_off_in_year: 0,
+        max_repaid_late_in_year: 0,
+    };
+    list_with_record_in(
+        Env::with_params(|p| p.business_rules = zero),
+        AsOfFacts::default(),
+        None,
+    );
+    let one_late_day = AsOfFacts {
+        overdue_unpaid: COUNT_ONE,
+        most_days_overdue: DAYS_OVERDUE_1_TO_7,
+        ..AsOfFacts::default()
+    };
+    list_with_record_in(
+        Env::with_params(|p| p.business_rules = zero),
+        one_late_day,
+        Some("TooManyOverdueUnpaid"),
+    );
+}
+
+#[test]
+fn test_a_wallet_whose_business_never_published_cant_list() {
+    let mut env = Env::new();
+    env.deposit(100_000 * USDC);
+    let anchor = env.anchor.insecure_clone();
+    env.forget_business(&anchor.pubkey());
+    let bill = env.bill(10_000);
+    expect_listing_refused(&mut env, &bill, "InvalidProof");
+}
+
+#[test]
+fn test_another_wallets_business_leaf_is_refused() {
+    let mut env = Env::new();
+    env.deposit(100_000 * USDC);
+    let clean = env.wallet();
+    let anchor = env.anchor.insecure_clone();
+    env.set_record(
+        &anchor.pubkey(),
+        AsOfFacts {
+            written_off_unrepaid: snapshot_roots::token_snapshot::COUNT_ONE,
+            ..AsOfFacts::default()
+        },
+    );
+    let bill = env.bill(10_000);
+    let proven = env.post_bill(&bill);
+    // The defaulted anchor hands in another business's clean leaf.
+    let theirs = env.business_proof(&clean.pubkey());
+    let ix = env.list_ix_with(
+        &anchor.pubkey(),
+        bill.commitment,
+        proven,
+        theirs,
+        &env.oracle.pubkey(),
+    );
+    env.send_expecting_error(&[ix], &[&anchor], "WrongBusiness");
+}
+
+#[test]
+fn test_a_business_leaf_without_a_record_is_refused() {
+    let mut env = Env::new();
+    env.deposit(100_000 * USDC);
+    let anchor = env.anchor.insecure_clone();
+    env.set_version_1_leaf(&anchor.pubkey());
+    let bill = env.bill(10_000);
+    expect_listing_refused(&mut env, &bill, "NoSupplierPoolRecord");
+}
+
+#[test]
+fn test_the_bill_leaf_cant_stand_in_for_the_business_leaf() {
+    let mut env = Env::new();
+    env.deposit(100_000 * USDC);
+    let bill = env.bill(10_000);
+    let proven = env.post_bill(&bill);
+    let anchor = env.anchor.insecure_clone();
+    let business = supplier_pool::facts::LeafProof {
+        leaf: proven.leaf.clone(),
+        proof: proven.proof.clone(),
+    };
+    let ix = env.list_ix_with(
+        &anchor.pubkey(),
+        bill.commitment,
+        proven,
+        business,
+        &env.oracle.pubkey(),
+    );
+    env.send_expecting_error(&[ix], &[&anchor], "NotABusinessLeaf");
 }

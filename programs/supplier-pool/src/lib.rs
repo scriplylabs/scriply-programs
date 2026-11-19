@@ -2,8 +2,9 @@
 //!
 //! Anyone creates a pool with fixed parameters: its token, its fee, whose
 //! posted roots it reads bills' facts from, which anchors it takes and its
-//! rules over each bill's facts. Depositors buy shares at its NAV. An
-//! anchor lists a bill with its bill leaf proven against a signer's latest
+//! rules over each bill's facts and each anchor's record with supplier
+//! pools. Depositors buy shares at its NAV. An anchor lists a bill with its
+//! bill leaf and its wallet's business leaf proven against a signer's latest
 //! root; the supplier claims with a signature from the address the listing
 //! commits to and is paid the amount less the fee; the anchor repays the
 //! whole amount by the bill's repayment date. A listing left unrepaid past
@@ -48,13 +49,15 @@ pub mod supplier_pool {
     }
 
     /// Lists the bill whose leaf, proven against a signer's latest root,
-    /// is for `commitment`, once the pool's rules pass.
+    /// is for `commitment`, once the pool's rules pass over it and over the
+    /// anchor's record in its business leaf, proven under the same root.
     pub fn list_bill(
         ctx: Context<ListBill>,
         commitment: [u8; 32],
         proven: facts::ProvenLeaf,
+        business: facts::LeafProof,
     ) -> Result<()> {
-        instructions::list_bill::handle_list_bill(ctx, commitment, proven)
+        instructions::list_bill::handle_list_bill(ctx, commitment, proven, business)
     }
 
     /// Closes an unclaimed listing to its anchor.
