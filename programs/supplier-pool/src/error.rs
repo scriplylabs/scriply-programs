@@ -105,4 +105,8 @@ pub enum SupplierPoolError {
     TooManyWrittenOffInYear,
     #[msg("The anchor repaid more listings late in the past year than the pool takes")]
     TooManyRepaidLateInYear,
+
+    // The bill leaf's anchor. Last, as above.
+    #[msg("The bill leaf names no anchor: its version is older than 2")]
+    NoAnchor,
 }

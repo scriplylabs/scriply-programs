@@ -93,7 +93,7 @@ fn vector_bill_leaves() -> Vec<BillLeaf> {
             let mut currency = [0u8; 16];
             currency[..8].copy_from_slice(b"FIAT_USD");
             BillLeaf {
-                version: 1,
+                version: 2,
                 network,
                 commitment: [0x10 + i; 32],
                 as_of: 1_800_000_000,
@@ -110,6 +110,7 @@ fn vector_bill_leaves() -> Vec<BillLeaf> {
                 vendor_tenure: i,
                 vendor_volume: i + 1,
                 vendor_history_vouched_bps: 0,
+                anchor: Some([0xd0 + i; 32]),
             }
         })
         .collect()
@@ -121,7 +122,7 @@ fn build_bill_vectors() -> Value {
         .take(2)
         .map(Snapshot::to_bytes)
         .collect();
-    leaves.extend(vector_bill_leaves().iter().map(BillLeaf::to_bytes));
+    leaves.extend(vector_bill_leaves().iter().map(|l| l.to_bytes().unwrap()));
     let tree = Tree::build(&leaves).unwrap();
     let out: Vec<Value> = leaves
         .iter()
@@ -136,7 +137,7 @@ fn build_bill_vectors() -> Value {
         })
         .collect();
     json!({
-        "description": "Two token snapshots (layout version 2) and three bill leaves (layout version 1) in one tree, in this order: each leaf's bytes, its hash, the tree's root and each leaf's proof (siblings from the bottom up). All hex.",
+        "description": "Two token snapshots (layout version 2) and three bill leaves (layout version 2) in one tree, in this order: each leaf's bytes, its hash, the tree's root and each leaf's proof (siblings from the bottom up). All hex.",
         "root": hex::encode(tree.root()),
         "leaves": out,
     })
@@ -224,7 +225,7 @@ fn build_business_vectors() -> Value {
             b
         })
         .collect();
-    leaves.push(vector_bill_leaves()[0].to_bytes());
+    leaves.push(vector_bill_leaves()[0].to_bytes().unwrap());
     leaves.extend((1..=2u8).map(|i| {
         BusinessLeaf {
             version: 2,
@@ -250,7 +251,7 @@ fn build_business_vectors() -> Value {
         })
         .collect();
     json!({
-        "description": "Two token snapshots in layout version 4 (the second's business never published), a bill leaf (layout version 1) and two business leaves (layout version 2) in one tree, in this order: each leaf's bytes, its hash, the tree's root and each leaf's proof (siblings from the bottom up). All hex.",
+        "description": "Two token snapshots in layout version 4 (the second's business never published), a bill leaf (layout version 2) and two business leaves (layout version 2) in one tree, in this order: each leaf's bytes, its hash, the tree's root and each leaf's proof (siblings from the bottom up). All hex.",
         "root": hex::encode(tree.root()),
         "leaves": out,
     })

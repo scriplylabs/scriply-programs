@@ -570,7 +570,8 @@ mod tests {
             version: 1,
             ..BillLeaf::default()
         }
-        .to_bytes();
+        .to_bytes()
+        .unwrap();
         assert_eq!(
             BusinessLeaf::parse(&bill),
             Err(BusinessLeafError::NotABusinessLeaf)

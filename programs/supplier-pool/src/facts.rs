@@ -7,7 +7,7 @@ use anchor_lang::prelude::*;
 use snapshot_roots::{
     token_snapshot::{
         merkle::{self, MERKLE_SCHEME_V1},
-        AsOfFacts, BillLeaf, BusinessLeaf,
+        AsOfFacts, BillLeaf, BillLeafError, BusinessLeaf,
     },
     SnapshotRoots,
 };
@@ -43,13 +43,20 @@ pub struct ListingFacts {
     pub record: AsOfFacts,
 }
 
-/// Returns the bill leaf `proven` shows for `commitment`, and the record
-/// `business` shows for `anchor` under the same root, read from `roots` at
-/// `now`, or why the pool can't use them: the roots aren't a pool signer's,
-/// the root isn't the signer's latest or is older than the pool allows, a
-/// proof fails, the bill leaf isn't a bill leaf of this network, currency
-/// and commitment, or the business leaf isn't `anchor`'s on this network
-/// with a record (version 2 or later).
+/// Returns the bill leaf `proven` shows for `commitment` and `anchor`, and
+/// the record `business` shows for `anchor` under the same root, read from
+/// `roots` at `now`, or why the pool can't use them: the roots aren't a pool
+/// signer's, the root isn't the signer's latest or is older than the pool
+/// allows, the bill leaf's version names no anchor (NoAnchor), a proof fails
+/// (as the bill leaf's does unless it names `anchor`), the bill leaf isn't a
+/// bill leaf of this network, currency and commitment, or the business leaf
+/// isn't `anchor`'s on this network with a record (version 2 or later).
+///
+/// `proven.leaf` is the bill leaf without its anchor, which is `anchor`
+/// itself (`BillLeaf::join_anchor`): a bill leaf is public once proved to
+/// any pool, so only the wallet the anchor offered the bill from may list
+/// it, and no other business's record stands in for the anchor's. Leaving
+/// it out keeps a listing 32 bytes shorter.
 ///
 /// Only the latest root is read, so nobody can pick an older one still kept
 /// whose facts were kinder. A wallet with no business leaf has no record at
@@ -79,12 +86,15 @@ pub fn read_listing_facts(
         now.saturating_sub(posted.as_of) <= pool.max_root_age as i64,
         SupplierPoolError::RootTooOld
     );
+    let joined = BillLeaf::join_anchor(&proven.leaf, &anchor.to_bytes()).map_err(|e| match e {
+        BillLeafError::NoAnchor => error!(SupplierPoolError::NoAnchor),
+        _ => error!(SupplierPoolError::NotABillLeaf),
+    })?;
     require!(
-        merkle::verify(&proven.root, &proven.leaf, &proven.proof),
+        merkle::verify(&proven.root, &joined, &proven.proof),
         SupplierPoolError::InvalidProof
     );
-    let bill =
-        BillLeaf::parse(&proven.leaf).map_err(|_| error!(SupplierPoolError::NotABillLeaf))?;
+    let bill = BillLeaf::parse(&joined).map_err(|_| error!(SupplierPoolError::NotABillLeaf))?;
     require!(
         bill.network == pool.network,
         SupplierPoolError::WrongNetwork
