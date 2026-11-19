@@ -116,10 +116,10 @@ impl Snapshot {
     }
 
     /// The snapshot in layout version 2, for signers, keepers and tests:
-    /// its 172 bytes, whatever `version` holds. A version 3 snapshot is
-    /// these followed by its business's facts (`BusinessFacts::to_bytes`,
-    /// or `NEVER_PUBLISHED`); without them `BusinessFacts::parse_snapshot`
-    /// refuses it as too short.
+    /// its 172 bytes, whatever `version` holds. A version 3 or 4 snapshot
+    /// is these followed by its business's facts (`BusinessFacts::to_bytes`,
+    /// with `as_of_facts` from version 4, or `NEVER_PUBLISHED`); without
+    /// them `BusinessFacts::parse_snapshot` refuses it as too short.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut b = Vec::with_capacity(SNAPSHOT_LEN);
         b.push(self.version);

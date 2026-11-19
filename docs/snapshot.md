@@ -1,4 +1,4 @@
-# Token snapshot, layout version 3
+# Token snapshot, layout version 4
 
 A snapshot is a set of facts about one receivables token on one network at one time, which a signer (a business that verifies orgs and their receivables, such as Scriply) vouches for. A signer commits every token's latest snapshot at once in a Merkle tree and posts its root on chain (below), and a program accepts a token's snapshot proven against a root posted by one of the keys it pinned when it was created.
 
@@ -10,10 +10,10 @@ Fixed-width fields, little-endian, no padding. Amounts are in the token's base u
 
 | Offset | Size | Field | Meaning |
 |---:|---:|---|---|
-| 0 | 1 | `version` | `3`. A later version only appends fields |
+| 0 | 1 | `version` | `4`. A later version only appends fields |
 | 1 | 16 | `network` | The network ID in ASCII, padded with zeros: `sol`, `sol-devnet` |
 | 17 | 32 | `mint` | The token's mint address |
-| 49 | 8 | `asOf` | When the facts were true, unix seconds (i64) |
+| 49 | 8 | `asOf` | When the signer vouched for the facts, unix seconds (i64). The invoices' facts are as the books were last read, which can be up to 5 days before (below) |
 | 57 | 32 | `reportHash` | SHA-256 of the latest published collateral report |
 | 89 | 8 | `networkSupply` | Units the signer records on this network; a program compares it with the mint's supply |
 | 97 | 8 | `outstandingUnits` | Units outstanding on every network |
@@ -34,13 +34,14 @@ Fixed-width fields, little-endian, no padding. Amounts are in the token's base u
 | 168 | 2 | `weightedDaysInBurnDebt` | Over the 365 days before `asOf`, the unit-days of burn debt owed (debt still owed counts up to `asOf`) over the units owed in that window (owed at its start or recorded during it), to the nearest day. It says how long a unit owed stayed owed, not how many were: one unit owed all year gives 365, as a thousand do. Version 2 |
 | 170 | 2 | `daysBurnDebtOverdue` | Days in the 365 before `asOf` that the token's burn debt was overdue (owed past its deadline), rounded up, so any time overdue counts. Version 2 |
 
-| 172 | 81 | business facts | The facts about the business that issued the token, as its business leaf has them from its offset 58 (`business-leaf.md`): its published period's end, the commitment to its statements, its ratios and the procedures the signer performed on them. All 0, `periodEndExclusive` included, when the business never published. Version 3 |
+| 172 | 99 | business facts | The facts about the business that issued the token, as its business leaf has them from its offset 58 (`business-leaf.md`): its published period's end, the commitment to its statements, its ratios and the procedures the signer performed on them (81 bytes, version 3), then the facts at `asOf`: the bank's cash now, what it owes supplier pools and how it has repaid them (18 bytes, version 4). All 0, `periodEndExclusive` included, when the business never published |
 
-Version 3 is 253 bytes; version 2 was its first 172, and version 1 its first 168, without the burn-debt history. `snapshot::tests::test_layout_offsets_are_pinned` pins these offsets, and `business::tests` the business facts'. `Snapshot::parse` reads the first 172 bytes of any version; `BusinessFacts::parse_snapshot` reads the business facts, all 0 for a version 2 snapshot.
+Version 4 is 271 bytes; version 3 was its first 253, without the facts at `asOf`, version 2 its first 172, and version 1 its first 168, without the burn-debt history. `snapshot::tests::test_layout_offsets_are_pinned` pins these offsets, and `business::tests` the business facts'. `Snapshot::parse` reads the first 172 bytes of any version; `BusinessFacts::parse_snapshot` reads the business facts, `None` for a version 2 snapshot, and their facts at `asOf` from version 4.
 
 ## Rules
 
-- **The layout only grows at its end.** A program with no admin can never change what it reads, so each field's offset, unit and meaning are permanent. A field whose meaning would change is a new field, appended. A program built for version 2 reads the first 172 bytes of any later version, version 3 included, and ignores the rest; the Merkle leaf still covers all of them.
+- **The layout only grows at its end.** A program with no admin can never change what it reads, so each field's offset, unit and meaning are permanent. A field whose meaning would change is a new field, appended. A program built for version 2 reads the first 172 bytes of any later version, versions 3 and 4 included, and ignores the rest; the Merkle leaf still covers all of them.
+- **A token whose books can't be read leaves the tree.** The signer reads a token's invoices from the business's accounting system. While it can't (a sign-in that lapsed, an outage), it keeps posting the snapshot from what it last read for 5 days, and from the sixth leaves the token out, until it reads the books again. A pool then reads the token as it reads one that left the tree for any reason: it lends no more against it, and its loans may be marked stale. A snapshot carries no date of its source, so a wallet's watcher can't learn when its business last signed in. So a pool's `max_root_age` bounds only the root, not the books: a snapshot under a root of age `max_root_age` can describe books read up to `max_root_age` plus 5 days before. A pool that wants the books no older than some age counts the 5 days in it.
 - **Naming the network and the mint stops replays:** a devnet snapshot, or another token's, can't be used for this token on this network.
 - **A snapshot is checked against the chain where the chain can say:** a borrow is refused when the mint's supply is above `networkSupply`, since units minted after the snapshot are outside its facts. A supply below it is accepted: roots are posted daily, burns happen as invoices are paid, and a burn only shrinks what the facts describe.
 - **The layout evolves freely on devnet and freezes when the first mainnet pool pins a signer's key.**
@@ -65,4 +66,4 @@ A signer's account keeps its latest 8 roots, each with when its snapshots were t
 
 Each posted root names its `scheme`, the tree's construction above (`MERKLE_SCHEME_V1`); the program takes only schemes it knows, and a later construction is a new scheme, so no root is read by the wrong rules. When no token's facts changed, the same root is posted again, and `find` returns its newest post.
 
-**Proof size limits a transaction.** A proof for a tree of 5,000 tokens is 13 hashes (416 bytes) beside the 253-byte snapshot (172 bytes in version 2). A v0 transaction (at most 1232 bytes) held a borrow with a proof of at most 5 hashes (32 tokens) with a version 2 snapshot, and holds one of at most 2 (4 leaves, of every kind, since business and bill leaves share the tree) with version 3's 81 more bytes, so borrows and marks go in v1 transactions: one (at most 4096 bytes) holds a borrow with a proof of 20 hashes (about a million tokens) in 1782 bytes, and marks several tokens' loans. A feed account per token, which anyone writes once from a proof and pools then read with no proof at all, would make borrows and marks smaller still, and let other programs read the facts.
+**Proof size limits a transaction.** A proof for a tree of 5,000 tokens is 13 hashes (416 bytes) beside the 271-byte snapshot (172 bytes in version 2). A v0 transaction (at most 1232 bytes) held a borrow with a proof of at most 5 hashes (32 tokens) with a version 2 snapshot, and one of at most 2 (4 leaves, of every kind, since business and bill leaves share the tree) with version 3's 81 more bytes; version 4's 18 more still leave 2, so borrows and marks go in v1 transactions: one (at most 4096 bytes) holds a borrow with a proof of 20 hashes (about a million tokens) in 1800 bytes, and marks several tokens' loans. A feed account per token, which anyone writes once from a proof and pools then read with no proof at all, would make borrows and marks smaller still, and let other programs read the facts.

@@ -4,13 +4,14 @@
 //! `UPDATE_SNAPSHOT_VECTORS=1 cargo test -p token-snapshot --test vectors`.
 //! docs/bill-leaf-vectors.json does the same for bill leaves, in a tree
 //! that also holds tokens' snapshots, as a signer's daily tree does, and
-//! docs/business-leaf-vectors.json for business leaves beside snapshots in
-//! layout version 3 and a bill leaf.
+//! docs/business-leaf-vectors.json for business leaves (layout version 2)
+//! beside snapshots in layout version 4 and a bill leaf.
 
 use serde_json::{json, Value};
 use token_snapshot::{
-    merkle::Tree, BillLeaf, BusinessFacts, BusinessLeaf, Snapshot, DOCUMENT_PURCHASE_ORDER,
-    DOCUMENT_VENDOR_INVOICE, NEVER_PUBLISHED,
+    merkle::Tree, AsOfFacts, BillLeaf, BusinessFacts, BusinessLeaf, Snapshot, COUNT_NONE,
+    COUNT_ONE, COUNT_TEN_OR_MORE, COUNT_TWO_TO_FOUR, DAYS_OVERDUE_NONE, DAYS_OVERDUE_OVER_90,
+    DOCUMENT_PURCHASE_ORDER, DOCUMENT_VENDOR_INVOICE, NEVER_PUBLISHED,
 };
 
 fn vector_snapshots() -> Vec<Snapshot> {
@@ -171,20 +172,50 @@ fn vector_business_facts(i: u8) -> BusinessFacts {
         cash_agreed_to_bank_bps: Some(9_900 + i as u32),
         receivables_tied_to_invoices_bps: (i != 2).then_some(10_000),
         receivables_confirmed_bps: (i != 2).then_some(5_000 + i as u32),
+        as_of_facts: Some(vector_as_of_facts(i)),
+    }
+}
+
+/// The first business repaid on time and has nothing open; the second has a
+/// listing written off and unrepaid, long overdue, and no bank cash now.
+fn vector_as_of_facts(i: u8) -> AsOfFacts {
+    if i == 1 {
+        return AsOfFacts {
+            bank_cash_now_to_current_liabilities_bps: Some(6_500),
+            supplier_finance_to_current_liabilities_bps: Some(1_200),
+            established_vendor_share_bps: Some(8_000),
+            overdue_unpaid: COUNT_NONE,
+            most_days_overdue: DAYS_OVERDUE_NONE,
+            written_off_unrepaid: COUNT_NONE,
+            written_off_in_year: COUNT_NONE,
+            repaid_in_year: COUNT_TEN_OR_MORE,
+            repaid_late_in_year: COUNT_NONE,
+        };
+    }
+    AsOfFacts {
+        bank_cash_now_to_current_liabilities_bps: None,
+        supplier_finance_to_current_liabilities_bps: Some(4_100),
+        established_vendor_share_bps: Some(0),
+        overdue_unpaid: COUNT_ONE,
+        most_days_overdue: DAYS_OVERDUE_OVER_90,
+        written_off_unrepaid: COUNT_ONE,
+        written_off_in_year: COUNT_ONE,
+        repaid_in_year: COUNT_TWO_TO_FOUR,
+        repaid_late_in_year: COUNT_ONE,
     }
 }
 
 fn build_business_vectors() -> Value {
     let mut network = [0u8; 16];
     network[..10].copy_from_slice(b"sol-devnet");
-    // Two tokens' snapshots in layout version 3: the first's business
+    // Two tokens' snapshots in layout version 4: the first's business
     // published, the second's never did (every fact 0).
     let mut leaves: Vec<Vec<u8>> = vector_snapshots()
         .into_iter()
         .take(2)
         .enumerate()
         .map(|(i, s)| {
-            let mut b = Snapshot { version: 3, ..s }.to_bytes();
+            let mut b = Snapshot { version: 4, ..s }.to_bytes();
             if i == 0 {
                 b.extend_from_slice(&vector_business_facts(1).to_bytes());
             } else {
@@ -196,7 +227,7 @@ fn build_business_vectors() -> Value {
     leaves.push(vector_bill_leaves()[0].to_bytes());
     leaves.extend((1..=2u8).map(|i| {
         BusinessLeaf {
-            version: 1,
+            version: 2,
             network,
             wallet: [0x40 + i; 32],
             as_of: 1_800_000_000,
@@ -219,7 +250,7 @@ fn build_business_vectors() -> Value {
         })
         .collect();
     json!({
-        "description": "Two token snapshots in layout version 3 (the second's business never published), a bill leaf (layout version 1) and two business leaves (layout version 1) in one tree, in this order: each leaf's bytes, its hash, the tree's root and each leaf's proof (siblings from the bottom up). All hex.",
+        "description": "Two token snapshots in layout version 4 (the second's business never published), a bill leaf (layout version 1) and two business leaves (layout version 2) in one tree, in this order: each leaf's bytes, its hash, the tree's root and each leaf's proof (siblings from the bottom up). All hex.",
         "root": hex::encode(tree.root()),
         "leaves": out,
     })

@@ -28,7 +28,7 @@ The app reads a token's proof under the newest root any of the pool's signers po
 
 ## Limits
 
-A proof adds a 32-byte hash each time the tokens in the signer's tree double. The app sends a v0 transaction (at most 1232 bytes) when one holds it, and a v1 transaction (at most 4096 bytes) when it doesn't, if the wallet says it signs v1. A borrow with a version 3 snapshot (253 bytes) fits in v0 only while the tree holds at most 4 leaves (2 hashes), counting business and bill leaves, so it goes in v1 in any real tree: v1 holds it far past that (20 hashes, about a million leaves, is 1782 bytes). Marking splits a token's loans over as many v0 transactions as they need, so it needs v1 only when one loan with its proof is too big for v0. A v1 transaction carries its own compute and account-data budgets, which the app sets from the simulation it already runs.
+A proof adds a 32-byte hash each time the tokens in the signer's tree double. The app sends a v0 transaction (at most 1232 bytes) when one holds it, and a v1 transaction (at most 4096 bytes) when it doesn't, if the wallet says it signs v1. A borrow with a version 4 snapshot (271 bytes) fits in v0 only while the tree holds a few leaves (at most 2 hashes), counting business and bill leaves, so it goes in v1 in any real tree: v1 holds it far past that (20 hashes, about a million leaves, is 1800 bytes). Marking splits a token's loans over as many v0 transactions as they need, so it needs v1 only when one loan with its proof is too big for v0. A v1 transaction carries its own compute and account-data budgets, which the app sets from the simulation it already runs.
 
 ## Development
 
