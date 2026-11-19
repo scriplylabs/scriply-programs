@@ -26,15 +26,15 @@ The published figures are as of the period's end, which the business picks. From
 |---|---|---|
 | `bankCashNowToCurrentLiabilities` | The bank's latest cash, across the business's linked bank accounts in its books, to the statements' current liabilities | No bank account is linked and in the books, one's latest balance was reported more than 5 days before `asOf` or isn't in the statements' currency, or current liabilities are 0 |
 | `supplierFinanceToCurrentLiabilities` | What the business owes supplier pools at `asOf` (its listings listed and not yet repaid or withdrawn, across every pool and network the signer attests bills for), to the statements' current liabilities | A listing isn't in the statements' currency, or current liabilities are 0 |
-| `establishedVendorShare` | Of what it owes supplier pools, the share for vendors it paid a bill itself (not through a pool) at least 180 days before `asOf` | It owes supplier pools nothing |
-| `overdueUnpaid` | Listings a pool paid out that the business hasn't repaid, on a day after their `repayOn` | |
+| `establishedVendorShare` | Of what it owes supplier pools, the share for vendors it paid a bill itself (not through a pool) at least 180 days before `asOf` | It owes supplier pools nothing, or a listing isn't in the statements' currency |
+| `overdueUnpaid` | Listings a pool paid out that the business hasn't repaid, a whole day or more past their `repayOn`, written off or not | |
 | `mostDaysOverdue` | The most whole days one of those is past its `repayOn` | |
 | `writtenOffUnrepaid` | Listings a pool wrote off that the business hasn't repaid | |
 | `writtenOffInYear` | Listings written off in the 365 days before `asOf` | |
 | `repaidInYear` | Listings repaid in the 365 days before `asOf` | |
-| `repaidLateInYear` | Of those, the ones repaid on a day after their `repayOn` | |
+| `repaidLateInYear` | Of those, the ones repaid a whole day or more after their `repayOn` | |
 
-Days are UTC days: a listing whose `repayOn` is a day is on time repaid any time that day, overdue from the next. The signer reads the listings from each pool's history on chain and its own record of the offers; a pool's own account sees only its listings. The counts are in bands, so an exact history isn't a fingerprint the business's wallets share (each wallet's leaf carries the same facts):
+Days are whole days of 86,400 seconds after `repayOn`, an instant like every date here: a listing is overdue, or was repaid late, once at least one whole day had passed since `repayOn` (`floor((t - repayOn) / 86400) >= 1`), and that floor is its days overdue. A signer that sets `repayOn` to a UTC midnight, the start of the day the business picked, makes that "on time any time that day, overdue from the next". The signer reads the listings from each pool's history on chain and its own record of the offers; a pool's own account sees only its listings. The counts are in bands, so the record can't be matched to the pools' public listings one by one to find which are this business's (every wallet's leaf already shares the business's commitment and ratios, so bands don't hide that its wallets belong together):
 
 | Band | Count (`COUNT_*`) | Days overdue (`DAYS_OVERDUE_*`) |
 |---:|---|---|

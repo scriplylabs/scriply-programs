@@ -64,8 +64,8 @@ pub const PROCEDURE_RECEIVABLES_TIED_TO_INVOICES: u8 = 2;
 pub const PROCEDURE_RECEIVABLES_CONFIRMED: u8 = 4;
 
 /// A count of the business's supplier pool listings, in bands
-/// (`AsOfFacts`), so a business's exact history isn't a fingerprint shared
-/// by its wallets' leaves.
+/// (`AsOfFacts`), so its record can't be matched to the pools' public
+/// listings one by one.
 pub const COUNT_NONE: u8 = 0;
 pub const COUNT_ONE: u8 = 1;
 pub const COUNT_TWO_TO_FOUR: u8 = 2;
@@ -83,7 +83,8 @@ pub const DAYS_OVERDUE_OVER_90: u8 = 5;
 /// Why bytes aren't a business leaf this crate can read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BusinessLeafError {
-    /// Fewer than BUSINESS_LEAF_LEN bytes.
+    /// Fewer bytes than the leaf's version needs: BUSINESS_LEAF_V1_LEN
+    /// for version 1, BUSINESS_LEAF_LEN for version 2 or later.
     TooShort,
     /// The first byte isn't LEAF_KIND_BUSINESS: another kind of leaf.
     NotABusinessLeaf,
@@ -141,18 +142,22 @@ pub struct BusinessFacts {
 pub struct AsOfFacts {
     /// The bank's latest cash, across the business's linked bank accounts
     /// in its books, to the statements' current liabilities; `None` when
-    /// one account's balance is more than 5 days old or none is linked.
+    /// none is linked, one account's balance is more than 5 days old or in
+    /// another currency than the statements', or current liabilities are 0.
     pub bank_cash_now_to_current_liabilities_bps: Option<u32>,
     /// What the business owes supplier pools now to the statements'
-    /// current liabilities.
+    /// current liabilities; `None` when a listing is in another currency
+    /// than the statements', or current liabilities are 0.
     pub supplier_finance_to_current_liabilities_bps: Option<u32>,
     /// Of what it owes supplier pools now, the share for vendors it has
-    /// paid itself for at least 180 days; `None` when it owes nothing.
+    /// paid itself for at least 180 days; `None` when it owes nothing or a
+    /// listing is in another currency than the statements'.
     pub established_vendor_share_bps: Option<u32>,
-    /// Listings a pool paid out that the business hasn't repaid, past
-    /// their `repayOn` day.
+    /// Listings a pool paid out that the business hasn't repaid, a whole
+    /// day (86,400 seconds) or more past their `repayOn`, written off or
+    /// not.
     pub overdue_unpaid: u8,
-    /// The most days one of those is past its `repayOn` day.
+    /// The most whole days one of those is past its `repayOn`.
     pub most_days_overdue: u8,
     /// Listings written off that the business hasn't repaid.
     pub written_off_unrepaid: u8,
@@ -160,7 +165,8 @@ pub struct AsOfFacts {
     pub written_off_in_year: u8,
     /// Listings repaid in the 365 days before `as_of`.
     pub repaid_in_year: u8,
-    /// Of those, the ones repaid on a day after their `repayOn` day.
+    /// Of those, the ones repaid a whole day or more after their
+    /// `repayOn`.
     pub repaid_late_in_year: u8,
 }
 
