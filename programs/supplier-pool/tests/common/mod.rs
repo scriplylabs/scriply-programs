@@ -434,7 +434,7 @@ impl Env {
             salt,
             commitment,
             leaf: BillLeaf {
-                version: 1,
+                version: 2,
                 network: padded("sol-devnet"),
                 commitment,
                 as_of: 0,
@@ -447,6 +447,7 @@ impl Env {
                 vendor_tenure: 3,
                 vendor_volume: 2,
                 vendor_history_vouched_bps: 0,
+                anchor: Some(self.anchor.pubkey().to_bytes()),
             },
         }
     }

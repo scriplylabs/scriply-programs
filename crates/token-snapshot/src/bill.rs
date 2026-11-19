@@ -4,12 +4,18 @@
 
 use crate::leaf::LEAF_KIND_BILL;
 
-/// The bill leaf's layout version this crate writes and reads, and every
-/// later one.
-pub const BILL_LEAF_VERSION: u8 = 1;
+/// The bill leaf's layout version this crate writes. It reads version 1
+/// and every later one.
+pub const BILL_LEAF_VERSION: u8 = 2;
 
-/// The bytes of layout version 1. A later version only appends fields.
-pub const BILL_LEAF_LEN: usize = 135;
+/// The bytes of layout version 1, the shortest leaf this crate reads.
+pub const BILL_LEAF_V1_LEN: usize = 135;
+
+/// The bytes of layout version 2. A later version only appends fields.
+pub const BILL_LEAF_LEN: usize = BILL_LEAF_V1_LEN + 32;
+
+/// The first layout version that names the anchor's wallet.
+pub const BILL_LEAF_ANCHOR_VERSION: u8 = 2;
 
 /// Which documents an operator verified, as bits of `documents_verified`.
 pub const DOCUMENT_VENDOR_INVOICE: u8 = 1;
@@ -19,11 +25,12 @@ pub const DOCUMENT_PROOF_OF_DELIVERY: u8 = 4;
 /// Why bytes aren't a bill leaf this crate can read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BillLeafError {
-    /// Fewer than BILL_LEAF_LEN bytes.
+    /// Fewer bytes than the leaf's version needs: BILL_LEAF_V1_LEN for
+    /// version 1, BILL_LEAF_LEN for version 2 or later.
     TooShort,
     /// The first byte isn't LEAF_KIND_BILL: another kind of leaf.
     NotABillLeaf,
-    /// A version before BILL_LEAF_VERSION.
+    /// Version 0, which no layout has.
     UnsupportedVersion,
 }
 
@@ -59,13 +66,16 @@ pub struct BillLeaf {
     /// The share of that volume whose payments are matched to a bank or
     /// wallet transaction, bps; `0` until the signer can match them.
     pub vendor_history_vouched_bps: u16,
+    /// The wallet the anchor offered the bill from, the only one that may
+    /// list it; `None` in a version 1 leaf, which names none.
+    pub anchor: Option<[u8; 32]>,
 }
 
 impl BillLeaf {
     /// Parses a bill leaf in layout version 1 or later, or says why it can't.
     ///
     /// ```ignore
-    /// let bill = BillLeaf::parse(&bytes)?; // reads the first 135 bytes
+    /// let bill = BillLeaf::parse(&bytes)?; // bill.anchor is None for version 1
     /// ```
     pub fn parse(bytes: &[u8]) -> Result<Self, BillLeafError> {
         if bytes.len() < 2 {
@@ -74,10 +84,16 @@ impl BillLeaf {
         if bytes[0] != LEAF_KIND_BILL {
             return Err(BillLeafError::NotABillLeaf);
         }
-        if bytes[1] < BILL_LEAF_VERSION {
+        if bytes[1] == 0 {
             return Err(BillLeafError::UnsupportedVersion);
         }
-        if bytes.len() < BILL_LEAF_LEN {
+        let has_anchor = bytes[1] >= BILL_LEAF_ANCHOR_VERSION;
+        let len = if has_anchor {
+            BILL_LEAF_LEN
+        } else {
+            BILL_LEAF_V1_LEN
+        };
+        if bytes.len() < len {
             return Err(BillLeafError::TooShort);
         }
         let mut r = crate::leaf::Reader::new(bytes, 2);
@@ -95,10 +111,12 @@ impl BillLeaf {
             vendor_tenure: r.u8(),
             vendor_volume: r.u8(),
             vendor_history_vouched_bps: r.u16(),
+            anchor: has_anchor.then(|| r.array()),
         })
     }
 
-    /// The leaf in layout version 1, for signers, keepers and tests.
+    /// The leaf's bytes, for signers, keepers and tests: BILL_LEAF_LEN with
+    /// `anchor`, as layout version 2 has it, BILL_LEAF_V1_LEN without.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut b = Vec::with_capacity(BILL_LEAF_LEN);
         b.push(LEAF_KIND_BILL);
@@ -115,6 +133,9 @@ impl BillLeaf {
         b.push(self.vendor_tenure);
         b.push(self.vendor_volume);
         b.extend_from_slice(&self.vendor_history_vouched_bps.to_le_bytes());
+        if let Some(anchor) = &self.anchor {
+            b.extend_from_slice(anchor);
+        }
         b
     }
 }
@@ -130,7 +151,7 @@ mod tests {
         let mut currency = [0u8; 16];
         currency[..8].copy_from_slice(b"FIAT_USD");
         BillLeaf {
-            version: 1,
+            version: 2,
             network,
             commitment: [5; 32],
             as_of: 1_800_000_000,
@@ -143,6 +164,7 @@ mod tests {
             vendor_tenure: 3,
             vendor_volume: 2,
             vendor_history_vouched_bps: 0,
+            anchor: Some([7; 32]),
         }
     }
 
@@ -160,7 +182,7 @@ mod tests {
         let l = sample();
         let b = l.to_bytes();
         assert_eq!(b[0], LEAF_KIND_BILL);
-        assert_eq!(b[1], 1);
+        assert_eq!(b[1], 2);
         assert_eq!(&b[2..18], &l.network);
         assert_eq!(&b[18..50], &l.commitment);
         assert_eq!(&b[50..58], &l.as_of.to_le_bytes());
@@ -173,12 +195,34 @@ mod tests {
         assert_eq!(b[131], l.vendor_tenure);
         assert_eq!(b[132], l.vendor_volume);
         assert_eq!(&b[133..135], &l.vendor_history_vouched_bps.to_le_bytes());
+        assert_eq!(&b[135..167], &l.anchor.unwrap());
+    }
+
+    #[test]
+    fn test_a_version_1_leaf_names_no_anchor() {
+        let leaf = BillLeaf {
+            version: 1,
+            anchor: None,
+            ..sample()
+        };
+        let bytes = leaf.to_bytes();
+        assert_eq!(bytes.len(), BILL_LEAF_V1_LEN);
+        assert_eq!(BillLeaf::parse(&bytes).unwrap(), leaf);
+    }
+
+    #[test]
+    fn test_a_version_2_leaf_without_its_anchor_is_too_short() {
+        let bytes = sample().to_bytes();
+        assert_eq!(
+            BillLeaf::parse(&bytes[..BILL_LEAF_V1_LEN]),
+            Err(BillLeafError::TooShort)
+        );
     }
 
     #[test]
     fn test_a_later_version_is_read_by_its_prefix() {
         let mut leaf = sample();
-        leaf.version = 2;
+        leaf.version = 3;
         let mut bytes = leaf.to_bytes();
         bytes.extend_from_slice(&[9, 9]);
         assert_eq!(BillLeaf::parse(&bytes).unwrap(), leaf);

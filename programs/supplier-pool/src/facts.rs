@@ -97,6 +97,13 @@ pub fn read_listing_facts(
         bill.commitment == *commitment,
         SupplierPoolError::WrongCommitment
     );
+    // A bill leaf is public once proved to any pool: only the wallet the
+    // anchor offered the bill from may list it, so no other business's
+    // record stands in for the anchor's.
+    require!(
+        bill.anchor == Some(anchor.to_bytes()),
+        SupplierPoolError::WrongAnchor
+    );
 
     require!(
         merkle::verify(&proven.root, &business.leaf, &business.proof),

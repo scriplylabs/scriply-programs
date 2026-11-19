@@ -57,7 +57,7 @@ A pool with no admin that pays an anchor's suppliers early on bills a signer att
 |---|---|---|
 | `create_pool` | Anyone | Creates a pool for a token with its parameters, at `["pool", creator, mint]` |
 | `deposit` / `withdraw` | Depositors | The token for shares at NAV (idle plus what anchors owe on paid bills not written off), and back from idle |
-| `list_bill` | An anchor | Lists a bill at its leaf's amount and repayment date, once the bill leaf and the anchor wallet's business leaf are proven against a signer's latest root and pass the pool's rules; the error names the rule that refused. A wallet whose business never published has no business leaf and can't list |
+| `list_bill` | An anchor | Lists a bill at its leaf's amount and repayment date, from the wallet the bill leaf names, once the bill leaf and the anchor wallet's business leaf are proven against a signer's latest root and pass the pool's rules; the error names the rule that refused. A wallet whose business never published has no business leaf and can't list |
 | `cancel_listing` | The anchor | Closes an unclaimed listing, returning its rent and deposit |
 | `claim` | Anyone, with the supplier's signature | Pays the supplier the amount less the fee, on an ed25519 check of its signature and the salt that opens the listing's commitment; refunds the fee payer from the listing's deposit. A commitment is claimed once across every pool |
 | `repay` | The anchor | Pays a claimed listing's whole amount into the pool and closes it |
