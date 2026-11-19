@@ -5,7 +5,7 @@
 mod common;
 
 use common::*;
-use snapshot_roots::token_snapshot::{AsOfFacts, DOCUMENT_PURCHASE_ORDER};
+use snapshot_roots::token_snapshot::{AsOfFacts, BillLeaf, DOCUMENT_PURCHASE_ORDER};
 use solana_signer::Signer;
 use supplier_pool::{
     claim_signature::claim_message,
@@ -180,7 +180,8 @@ fn test_a_claimed_leaf_cant_be_listed_by_another_wallet() {
     let stranger = env.wallet();
     let proven = env.post_bill(&bill);
     let ix = env.list_ix(&stranger.pubkey(), bill.commitment, proven);
-    env.send_expecting_error(&[ix], &[&stranger], "WrongAnchor");
+    // The leaf the stranger's key completes isn't the one in the tree.
+    env.send_expecting_error(&[ix], &[&stranger], "InvalidProof");
     assert_eq!(env.usdc_balance(&env.supplier.pubkey()), 9_850 * USDC);
 }
 
@@ -477,10 +478,11 @@ fn test_a_token_snapshot_is_not_a_bill() {
         }
         .to_bytes()
     };
-    let bill_hash = snapshot_roots::token_snapshot::merkle::hash_leaf(&proven.leaf);
+    let anchor = env.anchor.insecure_clone();
+    let tree_leaf_1 = BillLeaf::join_anchor(&proven.leaf, &anchor.pubkey().to_bytes()).unwrap();
+    let bill_hash = snapshot_roots::token_snapshot::merkle::hash_leaf(&tree_leaf_1);
     proven.proof[0] = bill_hash;
     proven.leaf = tree_leaf_0;
-    let anchor = env.anchor.insecure_clone();
     let ix = env.list_ix(&anchor.pubkey(), bill.commitment, proven);
     env.send_expecting_error(&[ix], &[&anchor], "NotABillLeaf");
 }
@@ -495,7 +497,7 @@ fn test_only_the_wallet_the_bill_leaf_names_lists_it() {
     let stranger = env.wallet();
     let proven = env.post_bill(&bill);
     let ix = env.list_ix(&stranger.pubkey(), bill.commitment, proven.clone());
-    env.send_expecting_error(&[ix], &[&stranger], "WrongAnchor");
+    env.send_expecting_error(&[ix], &[&stranger], "InvalidProof");
     let anchor = env.anchor.insecure_clone();
     let ix = env.list_ix(&anchor.pubkey(), bill.commitment, proven);
     env.send(&[ix], &[&anchor]).unwrap();
@@ -511,7 +513,7 @@ fn test_a_bill_leaf_naming_no_anchor_is_refused() {
     let proven = env.post_bill(&bill);
     let anchor = env.anchor.insecure_clone();
     let ix = env.list_ix(&anchor.pubkey(), bill.commitment, proven);
-    env.send_expecting_error(&[ix], &[&anchor], "WrongAnchor");
+    env.send_expecting_error(&[ix], &[&anchor], "NoAnchor");
 }
 
 #[test]
@@ -754,7 +756,7 @@ fn test_the_bill_leaf_cant_stand_in_for_the_business_leaf() {
     let proven = env.post_bill(&bill);
     let anchor = env.anchor.insecure_clone();
     let business = supplier_pool::facts::LeafProof {
-        leaf: proven.leaf.clone(),
+        leaf: BillLeaf::join_anchor(&proven.leaf, &anchor.pubkey().to_bytes()).unwrap(),
         proof: proven.proof.clone(),
     };
     let ix = env.list_ix_with(

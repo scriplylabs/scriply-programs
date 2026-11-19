@@ -32,6 +32,12 @@ pub enum BillLeafError {
     NotABillLeaf,
     /// Version 0, which no layout has.
     UnsupportedVersion,
+    /// A version before BILL_LEAF_ANCHOR_VERSION, which names no anchor, where
+    /// one is needed: a listing proves the wallet that signs it.
+    NoAnchor,
+    /// `anchor` doesn't match `version`: a version 1 leaf with one, or a
+    /// later one without.
+    AnchorDisagreesWithVersion,
 }
 
 /// One approved offer's facts. Amounts are in millionths of `currency`.
@@ -115,9 +121,18 @@ impl BillLeaf {
         })
     }
 
-    /// The leaf's bytes, for signers, keepers and tests: BILL_LEAF_LEN with
-    /// `anchor`, as layout version 2 has it, BILL_LEAF_V1_LEN without.
-    pub fn to_bytes(&self) -> Vec<u8> {
+    /// The leaf's bytes, as the tree holds them, for signers, keepers and
+    /// tests: BILL_LEAF_LEN for version 2 and later, BILL_LEAF_V1_LEN for
+    /// version 1, or AnchorDisagreesWithVersion when `anchor` doesn't match
+    /// `version`.
+    ///
+    /// ```ignore
+    /// let bytes = leaf.to_bytes()?; // bytes.len() == BILL_LEAF_LEN
+    /// ```
+    pub fn to_bytes(&self) -> Result<Vec<u8>, BillLeafError> {
+        if self.anchor.is_some() != (self.version >= BILL_LEAF_ANCHOR_VERSION) {
+            return Err(BillLeafError::AnchorDisagreesWithVersion);
+        }
         let mut b = Vec::with_capacity(BILL_LEAF_LEN);
         b.push(LEAF_KIND_BILL);
         b.push(self.version);
@@ -136,7 +151,55 @@ impl BillLeaf {
         if let Some(anchor) = &self.anchor {
             b.extend_from_slice(anchor);
         }
-        b
+        Ok(b)
+    }
+
+    /// The bytes a listing sends: the leaf without its anchor, which the
+    /// program takes from the wallet that signs (`join_anchor`), so a
+    /// listing is 32 bytes shorter. NoAnchor for a version 1 leaf.
+    ///
+    /// ```ignore
+    /// let listed = leaf.to_listed_bytes()?; // listed.len() == BILL_LEAF_V1_LEN
+    /// ```
+    pub fn to_listed_bytes(&self) -> Result<Vec<u8>, BillLeafError> {
+        if self.version < BILL_LEAF_ANCHOR_VERSION {
+            return Err(BillLeafError::NoAnchor);
+        }
+        let mut b = self.to_bytes()?;
+        b.drain(BILL_LEAF_V1_LEN..BILL_LEAF_LEN);
+        Ok(b)
+    }
+
+    /// Returns the leaf as the tree holds it from the bytes a listing sent
+    /// (`to_listed_bytes`) and the wallet that signed it, or why they can't
+    /// be one: too short, another kind of leaf, version 0, or a version
+    /// before BILL_LEAF_ANCHOR_VERSION, which names no anchor (NoAnchor).
+    /// A proof of the result fails unless the leaf names `anchor`.
+    ///
+    /// ```ignore
+    /// let leaf = BillLeaf::join_anchor(&listed, &signer.to_bytes())?;
+    /// ```
+    pub fn join_anchor(listed: &[u8], anchor: &[u8; 32]) -> Result<Vec<u8>, BillLeafError> {
+        if listed.len() < 2 {
+            return Err(BillLeafError::TooShort);
+        }
+        if listed[0] != LEAF_KIND_BILL {
+            return Err(BillLeafError::NotABillLeaf);
+        }
+        if listed[1] == 0 {
+            return Err(BillLeafError::UnsupportedVersion);
+        }
+        if listed[1] < BILL_LEAF_ANCHOR_VERSION {
+            return Err(BillLeafError::NoAnchor);
+        }
+        if listed.len() < BILL_LEAF_V1_LEN {
+            return Err(BillLeafError::TooShort);
+        }
+        let mut b = Vec::with_capacity(listed.len() + 32);
+        b.extend_from_slice(&listed[..BILL_LEAF_V1_LEN]);
+        b.extend_from_slice(anchor);
+        b.extend_from_slice(&listed[BILL_LEAF_V1_LEN..]);
+        Ok(b)
     }
 }
 
@@ -171,7 +234,7 @@ mod tests {
     #[test]
     fn test_layout_round_trips() {
         let leaf = sample();
-        let bytes = leaf.to_bytes();
+        let bytes = leaf.to_bytes().unwrap();
         assert_eq!(bytes.len(), BILL_LEAF_LEN);
         assert_eq!(BillLeaf::parse(&bytes).unwrap(), leaf);
     }
@@ -180,7 +243,7 @@ mod tests {
     #[test]
     fn test_layout_offsets_are_pinned() {
         let l = sample();
-        let b = l.to_bytes();
+        let b = l.to_bytes().unwrap();
         assert_eq!(b[0], LEAF_KIND_BILL);
         assert_eq!(b[1], 2);
         assert_eq!(&b[2..18], &l.network);
@@ -205,14 +268,14 @@ mod tests {
             anchor: None,
             ..sample()
         };
-        let bytes = leaf.to_bytes();
+        let bytes = leaf.to_bytes().unwrap();
         assert_eq!(bytes.len(), BILL_LEAF_V1_LEN);
         assert_eq!(BillLeaf::parse(&bytes).unwrap(), leaf);
     }
 
     #[test]
     fn test_a_version_2_leaf_without_its_anchor_is_too_short() {
-        let bytes = sample().to_bytes();
+        let bytes = sample().to_bytes().unwrap();
         assert_eq!(
             BillLeaf::parse(&bytes[..BILL_LEAF_V1_LEN]),
             Err(BillLeafError::TooShort)
@@ -223,14 +286,75 @@ mod tests {
     fn test_a_later_version_is_read_by_its_prefix() {
         let mut leaf = sample();
         leaf.version = 3;
-        let mut bytes = leaf.to_bytes();
+        let mut bytes = leaf.to_bytes().unwrap();
         bytes.extend_from_slice(&[9, 9]);
         assert_eq!(BillLeaf::parse(&bytes).unwrap(), leaf);
     }
 
     #[test]
+    fn test_a_leaf_whose_anchor_disagrees_with_its_version_isnt_written() {
+        let named = BillLeaf {
+            version: 1,
+            ..sample()
+        };
+        assert_eq!(
+            named.to_bytes(),
+            Err(BillLeafError::AnchorDisagreesWithVersion)
+        );
+        let unnamed = BillLeaf {
+            anchor: None,
+            ..sample()
+        };
+        assert_eq!(
+            unnamed.to_bytes(),
+            Err(BillLeafError::AnchorDisagreesWithVersion)
+        );
+    }
+
+    #[test]
+    fn test_a_listing_sends_the_leaf_without_its_anchor() {
+        let leaf = sample();
+        let listed = leaf.to_listed_bytes().unwrap();
+        assert_eq!(listed.len(), BILL_LEAF_V1_LEN);
+        assert_eq!(
+            BillLeaf::join_anchor(&listed, &[7; 32]).unwrap(),
+            leaf.to_bytes().unwrap()
+        );
+        assert_ne!(
+            BillLeaf::join_anchor(&listed, &[8; 32]).unwrap(),
+            leaf.to_bytes().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_a_later_versions_fields_follow_the_joined_anchor() {
+        let mut leaf = sample();
+        leaf.version = 3;
+        let mut tree = leaf.to_bytes().unwrap();
+        tree.extend_from_slice(&[9, 9]);
+        let mut listed = leaf.to_listed_bytes().unwrap();
+        listed.extend_from_slice(&[9, 9]);
+        assert_eq!(BillLeaf::join_anchor(&listed, &[7; 32]).unwrap(), tree);
+    }
+
+    #[test]
+    fn test_a_version_1_leaf_cant_be_joined_to_an_anchor() {
+        let leaf = BillLeaf {
+            version: 1,
+            anchor: None,
+            ..sample()
+        };
+        assert_eq!(leaf.to_listed_bytes(), Err(BillLeafError::NoAnchor));
+        let bytes = leaf.to_bytes().unwrap();
+        assert_eq!(
+            BillLeaf::join_anchor(&bytes, &[7; 32]),
+            Err(BillLeafError::NoAnchor)
+        );
+    }
+
+    #[test]
     fn test_a_short_leaf_is_refused() {
-        let bytes = sample().to_bytes();
+        let bytes = sample().to_bytes().unwrap();
         assert_eq!(
             BillLeaf::parse(&bytes[..BILL_LEAF_LEN - 1]),
             Err(BillLeafError::TooShort)
@@ -249,7 +373,7 @@ mod tests {
 
     #[test]
     fn test_a_bill_leaf_is_not_a_snapshot() {
-        let bytes = sample().to_bytes();
+        let bytes = sample().to_bytes().unwrap();
         assert!(Snapshot::parse(&bytes).is_err());
     }
 }

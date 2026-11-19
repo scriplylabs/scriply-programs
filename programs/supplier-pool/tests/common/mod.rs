@@ -474,8 +474,8 @@ impl Env {
                 ..Snapshot::default()
             }
             .to_bytes(),
-            leaf.to_bytes(),
-            other.to_bytes(),
+            leaf.to_bytes().unwrap(),
+            other.to_bytes().unwrap(),
         ];
         let mut wallets: Vec<(Pubkey, Option<AsOfFacts>)> =
             self.records.iter().map(|(w, r)| (*w, r.clone())).collect();
@@ -519,9 +519,12 @@ impl Env {
             .to_account_metas(None),
         );
         self.send(&[ix], &[signer]).unwrap();
+        // A listing sends the bill leaf without its anchor, which the
+        // program takes from the wallet that signs. A leaf that names none
+        // is sent whole, for the program to refuse.
         ProvenLeaf {
             root: tree.root(),
-            leaf: leaves[1].clone(),
+            leaf: leaf.to_listed_bytes().unwrap_or_else(|_| leaves[1].clone()),
             proof: tree.prove(1),
         }
     }

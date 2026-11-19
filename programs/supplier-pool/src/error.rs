@@ -107,6 +107,6 @@ pub enum SupplierPoolError {
     TooManyRepaidLateInYear,
 
     // The bill leaf's anchor. Last, as above.
-    #[msg("The bill leaf names another wallet than the listing's, or none: its version is older than 2")]
-    WrongAnchor,
+    #[msg("The bill leaf names no anchor: its version is older than 2")]
+    NoAnchor,
 }

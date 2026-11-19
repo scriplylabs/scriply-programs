@@ -122,7 +122,7 @@ fn build_bill_vectors() -> Value {
         .take(2)
         .map(Snapshot::to_bytes)
         .collect();
-    leaves.extend(vector_bill_leaves().iter().map(BillLeaf::to_bytes));
+    leaves.extend(vector_bill_leaves().iter().map(|l| l.to_bytes().unwrap()));
     let tree = Tree::build(&leaves).unwrap();
     let out: Vec<Value> = leaves
         .iter()
@@ -225,7 +225,7 @@ fn build_business_vectors() -> Value {
             b
         })
         .collect();
-    leaves.push(vector_bill_leaves()[0].to_bytes());
+    leaves.push(vector_bill_leaves()[0].to_bytes().unwrap());
     leaves.extend((1..=2u8).map(|i| {
         BusinessLeaf {
             version: 2,
