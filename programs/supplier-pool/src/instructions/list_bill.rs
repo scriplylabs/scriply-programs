@@ -5,7 +5,7 @@ use crate::{
     constants::*,
     error::SupplierPoolError,
     events::BillListed,
-    facts::{read_bill_leaf, ProvenLeaf},
+    facts::{read_listing_facts, LeafProof, ProvenLeaf},
     state::*,
 };
 
@@ -40,7 +40,7 @@ pub struct ListBill<'info> {
         bump
     )]
     pub listing: Box<Account<'info, Listing>>,
-    /// The signer's roots the leaf is proven against.
+    /// The signer's roots the leaves are proven against.
     #[account(
         seeds = [ROOTS_SEED, roots.signer.as_ref()],
         bump = roots.bump,
@@ -51,12 +51,14 @@ pub struct ListBill<'info> {
 }
 
 /// Lists the bill whose leaf `proven` shows for `commitment`, at its amount
-/// and repayment date, once the pool's rules pass; the error names the rule
-/// that refused it.
+/// and repayment date, once the pool's rules pass over it and over the
+/// anchor's record that `business` shows under the same root; the error
+/// names the rule that refused it.
 pub fn handle_list_bill(
     ctx: Context<ListBill>,
     commitment: [u8; 32],
     proven: ProvenLeaf,
+    business: LeafProof,
 ) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let anchor = ctx.accounts.anchor.key();
@@ -65,7 +67,16 @@ pub fn handle_list_bill(
         pool.takes_anchor(&anchor),
         SupplierPoolError::AnchorNotTaken
     );
-    let bill = read_bill_leaf(pool, &ctx.accounts.roots, &proven, &commitment, now)?;
+    let facts = read_listing_facts(
+        pool,
+        &ctx.accounts.roots,
+        &proven,
+        &business,
+        &commitment,
+        &anchor,
+        now,
+    )?;
+    let bill = facts.bill;
 
     let rules = pool.rules;
     require!(
@@ -85,6 +96,31 @@ pub fn handle_list_bill(
     require!(
         term_days <= rules.max_term_days as i64,
         SupplierPoolError::TermTooLong
+    );
+
+    // The anchor's record follows its business to every wallet, so a
+    // business that defaulted can't list again from a new one.
+    let record = facts.record;
+    let business_rules = pool.business_rules;
+    require!(
+        record.overdue_unpaid <= business_rules.max_overdue_unpaid,
+        SupplierPoolError::TooManyOverdueUnpaid
+    );
+    require!(
+        record.most_days_overdue <= business_rules.max_days_overdue,
+        SupplierPoolError::TooManyDaysOverdue
+    );
+    require!(
+        record.written_off_unrepaid <= business_rules.max_written_off_unrepaid,
+        SupplierPoolError::TooManyWrittenOffUnrepaid
+    );
+    require!(
+        record.written_off_in_year <= business_rules.max_written_off_in_year,
+        SupplierPoolError::TooManyWrittenOffInYear
+    );
+    require!(
+        record.repaid_late_in_year <= business_rules.max_repaid_late_in_year,
+        SupplierPoolError::TooManyRepaidLateInYear
     );
 
     let amount = pool.base_units(bill.amount)?;

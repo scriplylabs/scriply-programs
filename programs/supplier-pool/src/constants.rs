@@ -15,6 +15,10 @@ pub const BPS: u64 = 10_000;
 
 pub const SECONDS_PER_DAY: i64 = 86_400;
 
+/// The pool's spare bytes: 128 when it was first laid out, less the
+/// `BusinessRules` taken from them since, so a pool's size never changes.
+pub const POOL_RESERVED_LEN: usize = 128 - 5;
+
 pub const MAX_SIGNERS: usize = 4;
 pub const MAX_ANCHORS: usize = 8;
 

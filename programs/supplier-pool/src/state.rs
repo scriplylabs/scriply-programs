@@ -65,6 +65,27 @@ pub struct BillRules {
     pub max_term_days: u16,
 }
 
+/// What a pool refuses, from the listing anchor's record with supplier
+/// pools in its business leaf (docs/business-leaf.md, `AsOfFacts`): the
+/// highest band of each it takes. A count's bands are `COUNT_*` (0 none, 1
+/// one, 2 two to four, 3 five to nine, 4 ten or more) and the days' are
+/// `DAYS_OVERDUE_*` (0 none, 1 up to 7, 2 up to 30, 3 up to 60, 4 up to 90,
+/// 5 over 90), so 0 takes none and the highest band takes any.
+#[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BusinessRules {
+    /// The most listings paid out and unrepaid a whole day or more past
+    /// their repayment date, written off or not.
+    pub max_overdue_unpaid: u8,
+    /// The most days one of those may be past its repayment date.
+    pub max_days_overdue: u8,
+    /// The most listings written off and still unrepaid.
+    pub max_written_off_unrepaid: u8,
+    /// The most listings written off in the year before the root.
+    pub max_written_off_in_year: u8,
+    /// The most listings repaid a whole day or more late in that year.
+    pub max_repaid_late_in_year: u8,
+}
+
 /// A pool's parameters, fixed when it is created.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct PoolParams {
@@ -80,6 +101,7 @@ pub struct PoolParams {
     pub anchors: Vec<Pubkey>,
     pub fee: FeeSchedule,
     pub rules: BillRules,
+    pub business_rules: BusinessRules,
     /// The oldest root it reads, in seconds before now.
     pub max_root_age: u32,
     /// The most one anchor's wallet may owe the pool across its open
@@ -127,8 +149,11 @@ pub struct Pool {
     /// Claimed listings written off and not yet repaid, at their amounts:
     /// outside NAV until their anchors repay.
     pub written_off: u64,
+    /// Taken from `reserved`, so a pool created before it reads all zeros:
+    /// the strictest rules, taking no overdue or written-off listing.
+    pub business_rules: BusinessRules,
     /// Room for fields a later layout adds.
-    pub reserved: [u8; 128],
+    pub reserved: [u8; POOL_RESERVED_LEN],
 }
 
 impl Pool {
@@ -297,7 +322,14 @@ mod tests {
             outstanding: 0,
             listed: 0,
             written_off: 0,
-            reserved: [0; 128],
+            business_rules: BusinessRules {
+                max_overdue_unpaid: 0,
+                max_days_overdue: 0,
+                max_written_off_unrepaid: 0,
+                max_written_off_in_year: 0,
+                max_repaid_late_in_year: 0,
+            },
+            reserved: [0; POOL_RESERVED_LEN],
         }
     }
 

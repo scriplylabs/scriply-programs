@@ -1,12 +1,13 @@
-//! Reading a bill's facts: its bill leaf, proven against a root one of the
-//! pool's signers posted to the snapshot-roots program. The layout is
-//! `token_snapshot`'s; docs/bill-leaf.md is its spec.
+//! Reading a listing's facts: the bill's bill leaf and the anchor's business
+//! leaf, both proven against the latest root one of the pool's signers
+//! posted to the snapshot-roots program. The layouts are `token_snapshot`'s;
+//! docs/bill-leaf.md and docs/business-leaf.md are their specs.
 
 use anchor_lang::prelude::*;
 use snapshot_roots::{
     token_snapshot::{
         merkle::{self, MERKLE_SCHEME_V1},
-        BillLeaf,
+        AsOfFacts, BillLeaf, BusinessLeaf,
     },
     SnapshotRoots,
 };
@@ -24,25 +25,48 @@ pub struct ProvenLeaf {
     pub proof: Vec<[u8; 32]>,
 }
 
-/// Returns the bill leaf `proven` shows for `commitment`, read from `roots`
-/// at `now`, or why the pool can't use it: the roots aren't a pool signer's,
-/// the root isn't the signer's latest or is older than the pool allows, the
-/// proof fails, or the leaf isn't a bill leaf of this network, currency and
-/// commitment.
+/// A leaf and its proof under the root of the `ProvenLeaf` it comes with,
+/// as the anchor hands in its business leaf: one root for both keeps the
+/// listing's transaction small.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default)]
+pub struct LeafProof {
+    /// The leaf's bytes.
+    pub leaf: Vec<u8>,
+    /// The leaf's siblings from the bottom up.
+    pub proof: Vec<[u8; 32]>,
+}
+
+/// What a listing is decided on: the bill's facts and the anchor's record
+/// with supplier pools.
+pub struct ListingFacts {
+    pub bill: BillLeaf,
+    pub record: AsOfFacts,
+}
+
+/// Returns the bill leaf `proven` shows for `commitment`, and the record
+/// `business` shows for `anchor` under the same root, read from `roots` at
+/// `now`, or why the pool can't use them: the roots aren't a pool signer's,
+/// the root isn't the signer's latest or is older than the pool allows, a
+/// proof fails, the bill leaf isn't a bill leaf of this network, currency
+/// and commitment, or the business leaf isn't `anchor`'s on this network
+/// with a record (version 2 or later).
 ///
 /// Only the latest root is read, so nobody can pick an older one still kept
-/// whose facts were kinder.
+/// whose facts were kinder. A wallet with no business leaf has no record at
+/// all, not a clean one, so it can't list.
 ///
 /// ```ignore
-/// let bill = read_bill_leaf(&pool, &roots, &proven, &commitment, now)?;
+/// let facts = read_listing_facts(&pool, &roots, &proven, &business, &commitment, &anchor, now)?;
 /// ```
-pub fn read_bill_leaf(
+pub fn read_listing_facts(
     pool: &Pool,
     roots: &SnapshotRoots,
     proven: &ProvenLeaf,
+    business: &LeafProof,
     commitment: &[u8; 32],
+    anchor: &Pubkey,
     now: i64,
-) -> Result<BillLeaf> {
+) -> Result<ListingFacts> {
     require!(
         pool.is_signer(&roots.signer),
         SupplierPoolError::UnknownSigner
@@ -73,5 +97,20 @@ pub fn read_bill_leaf(
         bill.commitment == *commitment,
         SupplierPoolError::WrongCommitment
     );
-    Ok(bill)
+
+    require!(
+        merkle::verify(&proven.root, &business.leaf, &business.proof),
+        SupplierPoolError::InvalidProof
+    );
+    let leaf = BusinessLeaf::parse(&business.leaf)
+        .map_err(|_| error!(SupplierPoolError::NotABusinessLeaf))?;
+    require!(
+        leaf.network == pool.network && leaf.wallet == anchor.to_bytes(),
+        SupplierPoolError::WrongBusiness
+    );
+    let record = leaf
+        .facts
+        .as_of_facts
+        .ok_or_else(|| error!(SupplierPoolError::NoSupplierPoolRecord))?;
+    Ok(ListingFacts { bill, record })
 }

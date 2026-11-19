@@ -15,7 +15,7 @@ pub enum SupplierPoolError {
     InvalidAge,
     #[msg("A token's decimals must be at most 18")]
     InvalidDecimals,
-    #[msg("A band rule names a band the bill leaf doesn't have")]
+    #[msg("A band rule names a band its leaf doesn't have")]
     InvalidBand,
 
     // A bill's facts
@@ -86,4 +86,23 @@ pub enum SupplierPoolError {
 
     #[msg("Arithmetic overflow")]
     MathOverflow,
+
+    // The anchor's business leaf. After every other error, since the
+    // services map refusals by their codes, which follow this order.
+    #[msg("The leaf is not a business leaf this program reads")]
+    NotABusinessLeaf,
+    #[msg("The business leaf is of another wallet or network than the listing's")]
+    WrongBusiness,
+    #[msg("The business leaf carries no record with supplier pools: its version is older than 2")]
+    NoSupplierPoolRecord,
+    #[msg("The anchor has more listings overdue and unpaid than the pool takes")]
+    TooManyOverdueUnpaid,
+    #[msg("A listing of the anchor's is more days overdue than the pool takes")]
+    TooManyDaysOverdue,
+    #[msg("The anchor has more listings written off and unrepaid than the pool takes")]
+    TooManyWrittenOffUnrepaid,
+    #[msg("The anchor had more listings written off in the past year than the pool takes")]
+    TooManyWrittenOffInYear,
+    #[msg("The anchor repaid more listings late in the past year than the pool takes")]
+    TooManyRepaidLateInYear,
 }

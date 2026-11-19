@@ -4,6 +4,8 @@ use anchor_spl::{
     token_interface::{Mint, TokenAccount, TokenInterface},
 };
 
+use snapshot_roots::token_snapshot::{COUNT_TEN_OR_MORE, DAYS_OVERDUE_OVER_90};
+
 use crate::{constants::*, error::SupplierPoolError, events::PoolCreated, state::*};
 
 #[derive(Accounts)]
@@ -62,6 +64,7 @@ pub fn handle_create_pool(ctx: Context<CreatePool>, params: PoolParams) -> Resul
     pool.anchors = params.anchors;
     pool.fee = params.fee;
     pool.rules = params.rules;
+    pool.business_rules = params.business_rules;
     pool.max_root_age = params.max_root_age;
     pool.max_owed_per_anchor = params.max_owed_per_anchor;
     pool.write_off_after_days = params.write_off_after_days;
@@ -69,7 +72,7 @@ pub fn handle_create_pool(ctx: Context<CreatePool>, params: PoolParams) -> Resul
     pool.outstanding = 0;
     pool.listed = 0;
     pool.written_off = 0;
-    pool.reserved = [0; 128];
+    pool.reserved = [0; POOL_RESERVED_LEN];
     emit!(PoolCreated {
         pool: pool.key(),
         creator: pool.creator,
@@ -101,6 +104,19 @@ fn validate(params: &PoolParams, decimals: u8) -> Result<()> {
         params.rules.required_documents & !0b111 == 0
             && params.rules.min_vendor_tenure <= 4
             && params.rules.min_vendor_volume <= 5,
+        SupplierPoolError::InvalidBand
+    );
+    let b = params.business_rules;
+    require!(
+        [
+            b.max_overdue_unpaid,
+            b.max_written_off_unrepaid,
+            b.max_written_off_in_year,
+            b.max_repaid_late_in_year,
+        ]
+        .iter()
+        .all(|&band| band <= COUNT_TEN_OR_MORE)
+            && b.max_days_overdue <= DAYS_OVERDUE_OVER_90,
         SupplierPoolError::InvalidBand
     );
     Ok(())
