@@ -31,7 +31,7 @@ function groupUnmarked(pool: Pool, loans: Found<Loan>[]): Map<Address, Address[]
  * owes, up to what they approved and hold. 0 when there is nothing, which
  * `collect_from_borrower` would refuse.
  */
-async function collectable(at: PoolAt, loan: Loan, now: bigint): Promise<bigint> {
+async function getCollectable(at: PoolAt, loan: Loan, now: bigint): Promise<bigint> {
   const [poolAuthority] = await findPoolAuthorityPda({ pool: at.address });
   const account = await getTokenAccount(await findTokenAccount(loan.borrower, at.pool.quoteMint, TOKEN_PROGRAM_ADDRESS));
   if (!account || account.delegate !== poolAuthority) {
@@ -131,7 +131,7 @@ function Keeper({ signer, at, now, onDone }: { signer: TransactionSendingSigner;
           run={async () => {
             let last;
             for (const l of matured) {
-              if ((await collectable(at, l.data, BigInt(Math.floor(Date.now() / 1000)))) > 0n) {
+              if ((await getCollectable(at, l.data, BigInt(Math.floor(Date.now() / 1000)))) > 0n) {
                 last = await sendInstructions(signer, await buildCollectFromBorrower(signer, at, l.address, l.data));
               }
             }
