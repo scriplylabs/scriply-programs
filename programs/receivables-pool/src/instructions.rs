@@ -1,5 +1,6 @@
 pub mod borrow;
 pub mod claim_withdrawal;
+pub mod collect_from_borrower;
 pub mod create_pool;
 pub mod deposit;
 pub mod mark_loans;
@@ -12,6 +13,7 @@ pub mod withdraw_units;
 
 pub use borrow::*;
 pub use claim_withdrawal::*;
+pub use collect_from_borrower::*;
 pub use create_pool::*;
 pub use deposit::*;
 pub use mark_loans::*;

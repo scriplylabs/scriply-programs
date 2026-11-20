@@ -179,6 +179,13 @@ pub fn handle_borrow(
         },
         now,
     )?;
+    // The borrower approves the pool's authority, in the same transaction,
+    // to take what the loan owes through grace from this account, so
+    // anyone can collect it once the loan matures (`collect_from_borrower`).
+    let approved = ctx.accounts.borrower_quote.delegate
+        == Some(ctx.accounts.pool_authority.key()).into()
+        && ctx.accounts.borrower_quote.delegated_amount >= loan.owed_through_grace(&pool)?;
+    require!(approved, PoolError::CollectionNotApproved);
     let authority_bump = pool.authority_bump;
     drop(pool);
 
