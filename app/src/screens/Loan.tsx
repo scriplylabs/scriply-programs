@@ -2,9 +2,9 @@ import type { Address, TransactionSendingSigner } from '@solana/kit';
 import { TOKEN_PROGRAM_ADDRESS } from '@solana-program/token';
 import { useState } from 'react';
 
-import { buildCollectFromBorrower, buildRenewCollection, buildRepay, buildSyncLoan, buildWithdrawUnits, type PoolAt } from '../actions';
+import { buildCollectFromBorrower, buildRenewCollection, getOwedThroughGraceByBorrower, buildRepay, buildSyncLoan, buildWithdrawUnits, type PoolAt } from '../actions';
 import { findTokenAccount, getMint, getTokenAccount, rpc, sendInstructions, TOKEN_2022_PROGRAM_ADDRESS } from '../chain';
-import { graceSeconds, isLoanImpaired, owedOnLoan, owedThroughGrace } from '../engine';
+import { graceSeconds, isLoanImpaired, owedOnLoan } from '../engine';
 import { fetchMaybeLoan, findPoolAuthorityPda, type Loan, type Pool } from '../generated/receivables-pool';
 import { formatAmount, formatBps, formatTime, parseAmount, shortenAddress } from '../format';
 import { useLoad, useNow } from '../hooks';
@@ -55,7 +55,8 @@ function describeLoanState(pool: Pool, loan: Loan, now: bigint, vaultUnits: bigi
 }
 
 /** What the pool may take from the borrower's USDC account now. */
-type Collection = { approved: bigint; balance: bigint };
+/** `owedThroughGrace` is what all the borrower's open loans in the pool owe through grace, which one approval covers. */
+type Collection = { approved: bigint; balance: bigint; owedThroughGrace: bigint };
 
 function Actions({
   signer,
@@ -83,7 +84,6 @@ function Actions({
   const isMatured = now >= loan.maturityTime;
   const owed = loan.isOpen ? owedOnLoan(loan, now) : 0n;
   const collectable = [owed, collection.approved, collection.balance].reduce((a, b) => (a < b ? a : b));
-  const throughGrace = loan.isOpen ? owedThroughGrace(at.pool, loan) : 0n;
   return (
     <div className="panel-grid">
       {loan.isOpen && (
@@ -110,14 +110,14 @@ function Actions({
           />
         </div>
       )}
-      {loan.isOpen && isBorrower && collection.approved < throughGrace && (
+      {loan.isOpen && isBorrower && collection.approved < collection.owedThroughGrace && (
         <div className="panel">
           <h3>Approve collection again</h3>
           <p className="muted">
-            Your USDC account approves the pool for {formatAmount(collection.approved, d)} USDC, less than the {formatAmount(throughGrace, d)} USDC
-            the loan will owe through grace. An account approves one program at a time, so approving another app or pool replaces this one.
+            Your USDC account approves the pool for {formatAmount(collection.approved, d)} USDC, less than the {formatAmount(collection.owedThroughGrace, d)} USDC
+            your open loans in this pool will owe through grace, this one among them; approving again covers them all. An account approves one program at a time, so approving another app or pool replaces this one.
           </p>
-          <ActionButton label="Approve" run={async () => sendInstructions(signer, await buildRenewCollection(signer, at, loan))} onDone={onDone} />
+          <ActionButton label="Approve" run={async () => sendInstructions(signer, await buildRenewCollection(signer, at))} onDone={onDone} />
         </div>
       )}
       {loan.isOpen && (
@@ -163,16 +163,18 @@ export function LoanScreen({ poolAddress, pool, loanAddress }: { poolAddress: Ad
     if (!loan.exists || loan.data.pool !== poolAddress) {
       throw new Error('No loan of this pool at that address.');
     }
-    const [vault, proceeds, mint, borrowerQuote, [poolAuthority]] = await Promise.all([
+    const [vault, proceeds, mint, borrowerQuote, [poolAuthority], owedThroughGrace] = await Promise.all([
       findTokenAccount(loanAddress, loan.data.collateralMint, TOKEN_2022_PROGRAM_ADDRESS).then(getTokenAccount),
       findTokenAccount(loanAddress, pool.quoteMint, TOKEN_PROGRAM_ADDRESS).then(getTokenAccount),
       getMint(loan.data.collateralMint),
       findTokenAccount(loan.data.borrower, pool.quoteMint, TOKEN_PROGRAM_ADDRESS).then(getTokenAccount),
       findPoolAuthorityPda({ pool: poolAddress }),
+      getOwedThroughGraceByBorrower({ address: poolAddress, pool }, loan.data.borrower),
     ]);
     const collection: Collection = {
       approved: borrowerQuote?.delegate === poolAuthority ? borrowerQuote.delegatedAmount : 0n,
       balance: borrowerQuote?.amount ?? 0n,
+      owedThroughGrace,
     };
     return { loan: loan.data, vaultUnits: vault?.amount ?? 0n, proceeds: proceeds?.amount ?? 0n, mintDecimals: mint.decimals, collection };
   }, [loanAddress, poolAddress, pool]);

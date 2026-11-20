@@ -13,7 +13,7 @@ import {
 } from '@solana/kit';
 import { getApproveInstruction, getCreateAssociatedTokenIdempotentInstructionAsync, TOKEN_PROGRAM_ADDRESS } from '@solana-program/token';
 
-import { findGenerationRecord, findTokenAccount, getTokenAccount, isWithinOneTransaction, TOKEN_2022_PROGRAM_ADDRESS, type TokenProof } from './chain';
+import { findGenerationRecord, findTokenAccount, getTokenAccount, isWithinOneTransaction, listLoans, TOKEN_2022_PROGRAM_ADDRESS, type TokenProof } from './chain';
 import { owedThroughGrace } from './engine';
 import {
   findLoanPda,
@@ -224,14 +224,25 @@ export async function buildRepay(payer: TransactionSigner, p: PoolAt, loanAddres
 }
 
 /**
- * Approves the pool again to collect what an open loan owes through grace,
- * after the borrower revoked or lowered the approval, or approved something
- * else. Only the borrower can.
+ * What `borrower`'s open loans in the pool will owe once each one's maturity
+ * and grace pass: the approval that covers collecting every one of them,
+ * since they all collect from the same USDC account.
  */
-export async function buildRenewCollection(borrower: TransactionSigner, p: PoolAt, loan: Loan): Promise<Instruction[]> {
+export async function getOwedThroughGraceByBorrower(p: PoolAt, borrower: Address): Promise<bigint> {
+  const loans = await listLoans(p.address);
+  return loans.filter((l) => l.data.isOpen && l.data.borrower === borrower).reduce((sum, l) => sum + owedThroughGrace(p.pool, l.data), 0n);
+}
+
+/**
+ * Approves the pool again to collect what all the borrower's open loans in
+ * it owe through grace, after they revoked or lowered the approval, or
+ * approved something else. It replaces the approval, so it covers every
+ * loan, not only the one on screen. Only the borrower can.
+ */
+export async function buildRenewCollection(borrower: TransactionSigner, p: PoolAt): Promise<Instruction[]> {
   const [poolAuthority] = await findPoolAuthorityPda({ pool: p.address });
   const source = await findTokenAccount(borrower.address, p.pool.quoteMint, TOKEN_PROGRAM_ADDRESS);
-  const owed = owedThroughGrace(p.pool, loan);
+  const owed = await getOwedThroughGraceByBorrower(p, borrower.address);
   return [getApproveInstruction({ source, delegate: poolAuthority, owner: borrower, amount: owed + (owed * APPROVAL_MARGIN_BPS) / 10_000n })];
 }
 
