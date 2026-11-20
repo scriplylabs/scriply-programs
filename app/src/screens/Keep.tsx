@@ -1,9 +1,10 @@
 import type { Address, TransactionSendingSigner } from '@solana/kit';
+import { TOKEN_PROGRAM_ADDRESS } from '@solana-program/token';
 
-import { buildClaimWithdrawal, buildMarkLoanBatches, buildMarkStale, buildSettleEpoch, type PoolAt } from '../actions';
-import { listLoans, listWithdrawalRequests, proveToken, sendInstructions, type Found } from '../chain';
-import { currentEpoch, epochStart, isLoanImpaired } from '../engine';
-import type { Loan, Pool } from '../generated/receivables-pool';
+import { buildClaimWithdrawal, buildCollectFromBorrower, buildMarkLoanBatches, buildMarkStale, buildSettleEpoch, type PoolAt } from '../actions';
+import { findTokenAccount, getTokenAccount, listLoans, listWithdrawalRequests, proveToken, sendInstructions, type Found } from '../chain';
+import { currentEpoch, epochStart, isLoanImpaired, owedOnLoan } from '../engine';
+import { findPoolAuthorityPda, type Loan, type Pool } from '../generated/receivables-pool';
 import { formatTime, shortenAddress } from '../format';
 import { useLoad, useNow } from '../hooks';
 import { ActionButton, ErrorNote, Loading } from '../ui';
@@ -25,6 +26,20 @@ function groupUnmarked(pool: Pool, loans: Found<Loan>[]): Map<Address, Address[]
   return byMint;
 }
 
+/**
+ * What the pool may collect from a matured loan's borrower now: what it
+ * owes, up to what they approved and hold. 0 when there is nothing, which
+ * `collect_from_borrower` would refuse.
+ */
+async function collectable(at: PoolAt, loan: Loan, now: bigint): Promise<bigint> {
+  const [poolAuthority] = await findPoolAuthorityPda({ pool: at.address });
+  const account = await getTokenAccount(await findTokenAccount(loan.borrower, at.pool.quoteMint, TOKEN_PROGRAM_ADDRESS));
+  if (!account || account.delegate !== poolAuthority) {
+    return 0n;
+  }
+  return [owedOnLoan(loan, now), account.delegatedAmount, account.amount].reduce((a, b) => (a < b ? a : b));
+}
+
 function Keeper({ signer, at, now, onDone }: { signer: TransactionSendingSigner; at: PoolAt; now: bigint; onDone: () => void }) {
   const { pool } = at;
   const loans = useLoad(() => listLoans(at.address), [at.address, pool]);
@@ -34,6 +49,7 @@ function Keeper({ signer, at, now, onDone }: { signer: TransactionSendingSigner;
   const windowCloses = epochStart(pool, pool.settledEpoch) + pool.markWindowSeconds;
   const unmarked = loans.data && isEpochOpen ? groupUnmarked(pool, loans.data) : new Map<Address, Address[]>();
   const unmarkedLoans = [...unmarked.values()].flat();
+  const matured = (loans.data ?? []).filter((l) => l.data.isOpen && now >= l.data.maturityTime);
   return (
     <>
       <div className="panel">
@@ -93,6 +109,34 @@ function Keeper({ signer, at, now, onDone }: { signer: TransactionSendingSigner;
             let last;
             for (let i = 0; i < unmarkedLoans.length; i += STALE_PER_TRANSACTION) {
               last = await sendInstructions(signer, await buildMarkStale(signer, at, unmarkedLoans.slice(i, i + STALE_PER_TRANSACTION)));
+            }
+            return last;
+          }}
+          onDone={() => {
+            loans.reload();
+            onDone();
+          }}
+        />
+      </div>
+      <div className="panel">
+        <h3>Collect matured loans</h3>
+        <p className="muted">
+          Takes what each matured loan owes from its borrower’s USDC account, up to what they approved when they borrowed and what the account
+          holds. Loans whose borrower revoked the approval or holds nothing are skipped; they go on accruing at the late rate until repaid or
+          bought back.
+        </p>
+        <ActionButton
+          label={`Collect ${matured.length} matured loan${matured.length === 1 ? '' : 's'}`}
+          disabled={!isEpochOpen || matured.length === 0}
+          run={async () => {
+            let last;
+            for (const l of matured) {
+              if ((await collectable(at, l.data, BigInt(Math.floor(Date.now() / 1000)))) > 0n) {
+                last = await sendInstructions(signer, await buildCollectFromBorrower(signer, at, l.address, l.data));
+              }
+            }
+            if (!last) {
+              throw new Error('No matured loan’s borrower has anything the pool may collect.');
             }
             return last;
           }}

@@ -94,6 +94,13 @@ pub mod receivables_pool {
         instructions::repay::handle_repay(ctx, amount)
     }
 
+    /// Once a loan has matured, takes what it owes from the borrower's USDC
+    /// account, up to what the borrower approved at borrow; anyone may call
+    /// it. Once nothing is owed it closes.
+    pub fn collect_from_borrower(ctx: Context<CollectFromBorrower>) -> Result<()> {
+        instructions::collect_from_borrower::handle_collect_from_borrower(ctx)
+    }
+
     /// Sets USDC paid for a loan's units against it, records the units its
     /// vault holds, and closes it if nothing is owed.
     pub fn sync_loan(ctx: Context<SyncLoan>) -> Result<()> {

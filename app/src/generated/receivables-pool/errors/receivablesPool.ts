@@ -107,6 +107,12 @@ export const RECEIVABLES_POOL_ERROR__DEPOSIT_TOO_SMALL = 0x179b; // 6043
 export const RECEIVABLES_POOL_ERROR__WRONG_GENERATION_RECORD = 0x179c; // 6044
 /** MathOverflow: Arithmetic overflow */
 export const RECEIVABLES_POOL_ERROR__MATH_OVERFLOW = 0x179d; // 6045
+/** CollectionNotApproved: The borrower's USDC account must approve the pool's authority for what the loan owes through grace */
+export const RECEIVABLES_POOL_ERROR__COLLECTION_NOT_APPROVED = 0x179e; // 6046
+/** NotMatured: The loan hasn't reached maturity */
+export const RECEIVABLES_POOL_ERROR__NOT_MATURED = 0x179f; // 6047
+/** NothingToCollect: The borrower's USDC account has nothing the pool may collect */
+export const RECEIVABLES_POOL_ERROR__NOTHING_TO_COLLECT = 0x17a0; // 6048
 
 export type ReceivablesPoolError =
   | typeof RECEIVABLES_POOL_ERROR__ALREADY_MARKED
@@ -114,6 +120,7 @@ export type ReceivablesPoolError =
   | typeof RECEIVABLES_POOL_ERROR__BUCKET_IN_USE
   | typeof RECEIVABLES_POOL_ERROR__BURN_DEBT_HISTORY_OVERDUE
   | typeof RECEIVABLES_POOL_ERROR__BURN_DEBT_OVERDUE
+  | typeof RECEIVABLES_POOL_ERROR__COLLECTION_NOT_APPROVED
   | typeof RECEIVABLES_POOL_ERROR__DEPOSIT_TOO_SMALL
   | typeof RECEIVABLES_POOL_ERROR__EPOCH_NOT_SETTLED
   | typeof RECEIVABLES_POOL_ERROR__EXCEEDS_ADVANCE
@@ -141,6 +148,8 @@ export type ReceivablesPoolError =
   | typeof RECEIVABLES_POOL_ERROR__MINTED_SINCE_SNAPSHOT
   | typeof RECEIVABLES_POOL_ERROR__NO_ELIGIBLE_UNITS
   | typeof RECEIVABLES_POOL_ERROR__NOT_A_LOAN
+  | typeof RECEIVABLES_POOL_ERROR__NOTHING_TO_COLLECT
+  | typeof RECEIVABLES_POOL_ERROR__NOT_MATURED
   | typeof RECEIVABLES_POOL_ERROR__RATE_MODE_NOT_SUPPORTED
   | typeof RECEIVABLES_POOL_ERROR__ROOT_NOT_LATEST
   | typeof RECEIVABLES_POOL_ERROR__ROOT_OLDER_THAN_LAST_READ
@@ -165,6 +174,7 @@ if (process.env["NODE_ENV"] !== "production") {
     [RECEIVABLES_POOL_ERROR__BUCKET_IN_USE]: `Two live maturities would share a bucket`,
     [RECEIVABLES_POOL_ERROR__BURN_DEBT_HISTORY_OVERDUE]: `The token's burn debt was overdue for more days in the past year than the pool allows`,
     [RECEIVABLES_POOL_ERROR__BURN_DEBT_OVERDUE]: `The token has overdue burn debt`,
+    [RECEIVABLES_POOL_ERROR__COLLECTION_NOT_APPROVED]: `The borrower's USDC account must approve the pool's authority for what the loan owes through grace`,
     [RECEIVABLES_POOL_ERROR__DEPOSIT_TOO_SMALL]: `The deposit is too small to buy a share`,
     [RECEIVABLES_POOL_ERROR__EPOCH_NOT_SETTLED]: `A new epoch has started: settle it first`,
     [RECEIVABLES_POOL_ERROR__EXCEEDS_ADVANCE]: `The loan exceeds the advance the risk engine allows for the units pledged`,
@@ -192,6 +202,8 @@ if (process.env["NODE_ENV"] !== "production") {
     [RECEIVABLES_POOL_ERROR__MINTED_SINCE_SNAPSHOT]: `Units were minted after the snapshot, so its facts don't cover them`,
     [RECEIVABLES_POOL_ERROR__NO_ELIGIBLE_UNITS]: `None of the token's units are eligible`,
     [RECEIVABLES_POOL_ERROR__NOT_A_LOAN]: `The account is not an open loan of this pool`,
+    [RECEIVABLES_POOL_ERROR__NOTHING_TO_COLLECT]: `The borrower's USDC account has nothing the pool may collect`,
+    [RECEIVABLES_POOL_ERROR__NOT_MATURED]: `The loan hasn't reached maturity`,
     [RECEIVABLES_POOL_ERROR__RATE_MODE_NOT_SUPPORTED]: `This program doesn't build that rate mode yet`,
     [RECEIVABLES_POOL_ERROR__ROOT_NOT_LATEST]: `That root is not the signer's latest`,
     [RECEIVABLES_POOL_ERROR__ROOT_OLDER_THAN_LAST_READ]: `The root is older than the one this loan was last read from`,

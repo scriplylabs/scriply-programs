@@ -3,7 +3,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { assessBorrow, owedAt, rateBps, SECONDS_PER_DAY, type Accrual } from './engine';
+import { assessBorrow, owedAt, owedThroughGraceOnOpening, rateBps, SECONDS_PER_DAY, type Accrual } from './engine';
+import type { Pool } from './generated/receivables-pool';
 import type { RiskParams } from './generated/receivables-pool';
 import type { Snapshot } from './snapshot';
 
@@ -168,5 +169,14 @@ describe('owedAt', () => {
     const a = loan(1_000_000_000n, 1_000n, 2_000n, T0, maturity);
     const atMaturity = owedAt(a, maturity, maturity);
     expect(owedAt(a, maturity + 30n * DAY, maturity) - atMaturity).toBe(16_438_356n);
+  });
+});
+
+describe('owedThroughGraceOnOpening, as test_pool.rs tests it', () => {
+  it('is 500 USDC at 12% for 4 weekly epochs, then 15% for 2 of grace', () => {
+    const pool = { graceEpochs: 2, epochSeconds: 7n * SECONDS_PER_DAY, lateSpreadBps: 300 } as Pool;
+    const t0 = 1_800_000_000n;
+    const owed = owedThroughGraceOnOpening(pool, 500_000_000n, 1_200, t0, t0 + 28n * SECONDS_PER_DAY);
+    expect(owed).toBe(500_000_000n + (500_000_000n * 1_200n * 28n + 500_000_000n * 1_500n * 14n) / 365n / 10_000n);
   });
 });
