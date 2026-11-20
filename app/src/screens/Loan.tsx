@@ -117,7 +117,7 @@ function Actions({
             Your USDC account approves the pool for {formatAmount(collection.approved, d)} USDC, less than the {formatAmount(collection.owedThroughGrace, d)} USDC
             your open loans in this pool will owe through grace, this one among them; approving again covers them all. An account approves one program at a time, so approving another app or pool replaces this one.
           </p>
-          <ActionButton label="Approve" run={async () => sendInstructions(signer, await buildRenewCollection(signer, at))} onDone={onDone} />
+          <ActionButton label="Approve" run={async () => sendInstructions(signer, await buildRenewCollection(signer, at, BigInt(Math.floor(Date.now() / 1000))))} onDone={onDone} />
         </div>
       )}
       {loan.isOpen && (
@@ -169,7 +169,7 @@ export function LoanScreen({ poolAddress, pool, loanAddress }: { poolAddress: Ad
       getMint(loan.data.collateralMint),
       findTokenAccount(loan.data.borrower, pool.quoteMint, TOKEN_PROGRAM_ADDRESS).then(getTokenAccount),
       findPoolAuthorityPda({ pool: poolAddress }),
-      getOwedThroughGraceByBorrower({ address: poolAddress, pool }, loan.data.borrower),
+      getOwedThroughGraceByBorrower({ address: poolAddress, pool }, loan.data.borrower, BigInt(Math.floor(Date.now() / 1000))),
     ]);
     const collection: Collection = {
       approved: borrowerQuote?.delegate === poolAuthority ? borrowerQuote.delegatedAmount : 0n,

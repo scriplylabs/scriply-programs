@@ -130,9 +130,16 @@ export function owedThroughGraceOnOpening(pool: Pool, principal: bigint, rateBps
   return owedAt(a, maturity + graceSeconds(pool), maturity);
 }
 
-/** `Loan::owed_through_grace` for an open loan. */
-export function owedThroughGrace(pool: Pool, loan: Loan): bigint {
-  return owedAt(toLoanAccrual(loan), loan.maturityTime + graceSeconds(pool), loan.maturityTime);
+/**
+ * What an open loan will owe once maturity and grace pass, or owes at `now`
+ * once they have: the least an approval must cover to collect it. Unlike
+ * `Loan::owed_through_grace`, which only `borrow` calls, before maturity,
+ * it never looks back before `now`. Once grace has passed, the late interest
+ * since counts, and a payment since moves the loan's accrual start past the
+ * end of grace.
+ */
+export function owedThroughGrace(pool: Pool, loan: Loan, now: bigint): bigint {
+  return owedOnLoan(loan, max(now, loan.maturityTime + graceSeconds(pool)));
 }
 
 /** `Pool::current_epoch`. */

@@ -3,8 +3,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { assessBorrow, owedAt, owedThroughGraceOnOpening, rateBps, SECONDS_PER_DAY, type Accrual } from './engine';
-import type { Pool } from './generated/receivables-pool';
+import { assessBorrow, owedAt, owedOnLoan, owedThroughGrace, owedThroughGraceOnOpening, rateBps, SECONDS_PER_DAY, type Accrual } from './engine';
+import type { Loan, Pool } from './generated/receivables-pool';
 import type { RiskParams } from './generated/receivables-pool';
 import type { Snapshot } from './snapshot';
 
@@ -178,5 +178,32 @@ describe('owedThroughGraceOnOpening, as test_pool.rs tests it', () => {
     const t0 = 1_800_000_000n;
     const owed = owedThroughGraceOnOpening(pool, 500_000_000n, 1_200, t0, t0 + 28n * SECONDS_PER_DAY);
     expect(owed).toBe(500_000_000n + (500_000_000n * 1_200n * 28n + 500_000_000n * 1_500n * 14n) / 365n / 10_000n);
+  });
+});
+
+describe('owedThroughGrace, for an open loan', () => {
+  const pool = { graceEpochs: 2, epochSeconds: 7n * SECONDS_PER_DAY, lateSpreadBps: 300 } as Pool;
+  const t0 = 1_800_000_000n;
+  const maturity = t0 + 28n * SECONDS_PER_DAY;
+  const graceEnd = maturity + 14n * SECONDS_PER_DAY;
+  const loan = (principal: bigint, accrualStart: bigint) =>
+    ({ principal, rateBps: 1_200, lateRateBps: 1_500, accrualStart, maturityTime: maturity, carriedInterest: 0n }) as Loan;
+
+  it('is what the loan will owe at the end of grace, before then', () => {
+    const l = loan(500_000_000n, t0);
+    expect(owedThroughGrace(pool, l, t0)).toBe(owedOnLoan(l, graceEnd));
+  });
+
+  it('counts the late interest since grace ended, after then', () => {
+    const l = loan(500_000_000n, t0);
+    const now = graceEnd + 60n * SECONDS_PER_DAY;
+    expect(owedThroughGrace(pool, l, now)).toBe(owedOnLoan(l, now));
+    expect(owedThroughGrace(pool, l, now)).toBeGreaterThan(owedOnLoan(l, graceEnd));
+  });
+
+  it('never falls below principal after a payment past grace', () => {
+    const paidAt = graceEnd + 30n * SECONDS_PER_DAY;
+    const l = loan(400_000_000n, paidAt);
+    expect(owedThroughGrace(pool, l, paidAt)).toBe(400_000_000n);
   });
 });
