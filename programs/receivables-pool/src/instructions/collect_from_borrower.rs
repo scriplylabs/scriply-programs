@@ -68,7 +68,9 @@ pub fn handle_collect_from_borrower(ctx: Context<CollectFromBorrower>) -> Result
     )?;
     record_units(&mut a.loan, &mut a.loan_tokens)?;
 
-    if a.loan.is_open {
+    // Proceeds may already have repaid it; then it only closes, as `repay`
+    // would, and nothing is taken from the borrower.
+    if a.loan.is_open && !a.loan.is_repaid() {
         a.loan_tokens.borrower_quote.reload()?;
         let source = &a.loan_tokens.borrower_quote;
         let approved = match source.delegate {

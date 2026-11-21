@@ -98,7 +98,7 @@ function Actions({
               ? collectable > 0n
                 ? `${formatAmount(collectable, d)} USDC can be collected now.`
                 : collection.approved === 0n
-                  ? 'The borrower has revoked the approval, so nothing can be collected.'
+                  ? 'The borrower’s USDC account doesn’t approve this pool: the approval was revoked, or another app or pool was approved instead. Nothing can be collected.'
                   : 'The borrower’s USDC account is empty, so nothing can be collected.'
               : `It can be collected from ${formatTime(loan.maturityTime)}.`}
           </p>

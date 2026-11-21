@@ -904,6 +904,43 @@ fn test_a_matured_loan_is_collected_from_the_borrower() {
 }
 
 #[test]
+fn test_collecting_a_loan_its_proceeds_repay_closes_it_and_takes_nothing() {
+    let mut env = Env::new();
+    env.depositor(2_000 * USDC);
+    let org = borrower(&mut env, 1_000 * UNIT);
+    borrow(&mut env, &org, 1_000 * UNIT, 500 * USDC, 4);
+    let keeper = env.wallet();
+    env.set_time(T0 + 4 * EPOCH);
+    env.settle();
+
+    // A buy-back paid more than the loan owes, and nobody synced it yet.
+    let creator = env.creator.insecure_clone();
+    let funding = env.fund_usdc(&creator.pubkey(), 600 * USDC);
+    let proceeds = ata(&env.loan(&org.pubkey()), &env.usdc, &spl_token::ID);
+    let ix = spl_token::instruction::transfer(
+        &spl_token::ID,
+        &funding,
+        &proceeds,
+        &creator.pubkey(),
+        &[],
+        600 * USDC,
+    )
+    .unwrap();
+    env.send(&[ix], &[&creator]).unwrap();
+
+    // Collecting sets the proceeds against it and closes it; the borrower
+    // is sent the rest and nothing is taken from them.
+    let ix = env.collect_from_borrower_ix(&org.pubkey());
+    env.send(&[ix], &[&keeper]).unwrap();
+    assert!(!env.loan_state(&org.pubkey()).is_open);
+    // 500 at 12% for 28 days is 4.602739 of interest.
+    assert_eq!(
+        env.usdc_balance(&org.pubkey()),
+        500 * USDC + 600 * USDC - 504_602_739
+    );
+}
+
+#[test]
 fn test_collecting_takes_only_what_the_borrower_approved_and_holds() {
     let mut env = Env::new();
     env.depositor(2_000 * USDC);

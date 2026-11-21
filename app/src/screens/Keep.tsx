@@ -130,10 +130,19 @@ function Keeper({ signer, at, now, onDone }: { signer: TransactionSendingSigner;
           disabled={!isEpochOpen || matured.length === 0}
           run={async () => {
             let last;
+            const failed: string[] = [];
             for (const l of matured) {
               if ((await getCollectable(at, l.data, BigInt(Math.floor(Date.now() / 1000)))) > 0n) {
-                last = await sendInstructions(signer, await buildCollectFromBorrower(signer, at, l.address, l.data));
+                try {
+                  last = await sendInstructions(signer, await buildCollectFromBorrower(signer, at, l.address, l.data));
+                } catch (e) {
+                  failed.push(`${shortenAddress(l.address)}: ${e instanceof Error ? e.message : String(e)}`);
+                }
               }
+            }
+            if (failed.length > 0) {
+              loans.reload();
+              throw new Error(`Couldn’t collect ${failed.length} loan${failed.length === 1 ? '' : 's'}; the rest were sent. ${failed.join('; ')}`);
             }
             if (!last) {
               throw new Error('No matured loan’s borrower has anything the pool may collect.');

@@ -49,6 +49,7 @@ flowchart TD
 
   pool --> authority & shares & exposure & loan & request & generation
   authority -. owns .-> vault & escrow
+  authority -. mint authority .-> shares
   authority -. delegate, up to the approval .-> borrowerUsdc
   loan -. owns .-> units & proceeds
   pool -. reads facts from .-> roots
@@ -59,7 +60,9 @@ flowchart TD
 
 | Account | How many | Taken by |
 |---|---|---|
-| Pool, pool authority, share mint, USDC vault, share escrow | 1 each per pool | Every instruction that moves USDC or shares |
+| Pool | 1 per pool | Every instruction |
+| Pool authority, USDC vault | 1 each per pool | Every instruction that moves USDC |
+| Share mint, share escrow | 1 each per pool | `create_pool`, `deposit`, `request_withdrawal`, `settle_epoch`, `claim_withdrawal` |
 | `TokenExposure` | 1 per collateral token | `borrow`, `repay`, `collect_from_borrower`, `sync_loan` |
 | `Loan`, its units vault and its proceeds account | 3 per token and borrower, reused once the loan closes | One at a time: `borrow`, `repay`, `collect_from_borrower`, `sync_loan`, `withdraw_units`. In batches: `mark_loans`, `mark_stale` |
 | `WithdrawalRequest` | 1 per depositor waiting | `request_withdrawal`, `claim_withdrawal` |
@@ -69,7 +72,7 @@ Only `mark_loans` and `mark_stale` take many loans at once, as remaining account
 
 ### How it decides
 
-- **Repayments go only to the pool's own vaults.** `repay` and `sync_loan` take the pool's USDC vault and the loan's own vault and proceeds account only at their associated token addresses. The quote token must be a classic SPL token, so no transfer fee or delegate leaves the vault short of what the pool counts.
+- **Repayments go only to the pool's own vaults.** `repay`, `sync_loan` and `collect_from_borrower` take the pool's USDC vault and the loan's own vault and proceeds account only at their associated token addresses. The quote token must be a classic SPL token, so no transfer fee or delegate leaves the vault short of what the pool counts.
 - **A matured loan is collected from its borrower, if they let it be.** `borrow` refuses unless the borrower's USDC account approves the pool's authority (an SPL `approve`, sent in the same transaction) for at least what the loan will owe once maturity and grace pass. From maturity anyone may send `collect_from_borrower`, which takes what is owed, up to the approval left and the balance. It is autopay the borrower set up, not enforcement: they can revoke the approval or empty the account, and an account has one delegate and one allowance: the borrower's loans in the pool share it, `borrow` checks only that it covers the new loan, and approving another program or pool replaces it. A loan that can't be collected goes on as before, at the late rate and impaired after grace, until it is repaid or its units are bought back.
 - **Closing a loan never moves its units.** They wait in the loan's vault for `withdraw_units`, so an issuer freezing the borrower's account can't block a repayment. A borrower's next loan against the token waits for them to be withdrawn.
 - **Facts come only from roots.** A signer posts the Merkle root of every token's latest snapshot to `snapshot-roots`; a borrower or keeper hands the pool a token's snapshot and its proof. The root must be the latest one of the pool's signers posted, and no older than the pool allows, so nobody can pick an older, kinder root still kept; the snapshot must name this network and this mint. `docs/snapshot.md` is the layout and the tree.
@@ -117,7 +120,7 @@ flowchart TD
   listing["<b>Listing</b><br/>[&quot;listing&quot;, pool, anchor wallet, commitment]<br/>one per open bill"]
   claimed["<b>ClaimRecord</b><br/>[&quot;claimed&quot;, commitment]<br/>one per commitment, across every pool"]
   vault[("Vault<br/>ATA of the pool")]
-  supplierTokens[("Supplier's token account<br/>created by the claim")]
+  supplierTokens[("Supplier's token account<br/>created by the claim if missing")]
   anchorTokens[("Anchor's token account<br/>the anchor's own, signs repay")]
   roots["SnapshotRoots<br/>snapshot-roots program"]
 

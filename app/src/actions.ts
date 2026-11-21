@@ -13,7 +13,7 @@ import {
 } from '@solana/kit';
 import { getApproveInstruction, getCreateAssociatedTokenIdempotentInstructionAsync, TOKEN_PROGRAM_ADDRESS } from '@solana-program/token';
 
-import { findGenerationRecord, findTokenAccount, getTokenAccount, isWithinOneTransaction, listLoans, TOKEN_2022_PROGRAM_ADDRESS, type TokenProof } from './chain';
+import { findGenerationRecord, findTokenAccount, isWithinOneTransaction, listLoans, TOKEN_2022_PROGRAM_ADDRESS, type TokenProof } from './chain';
 import { owedThroughGrace } from './engine';
 import {
   findLoanPda,
@@ -142,34 +142,34 @@ export async function buildCreateVault(borrower: TransactionSigner, p: PoolAt, m
 export type BorrowRequest = { mint: Address; units: bigint; principal: bigint; maturityEpochs: number; proof: TokenProof; owedThroughGrace: bigint };
 
 /**
- * Approves the pool's authority to collect `amount` from the borrower's
- * USDC account once a loan matures (README: `collect_from_borrower`). An
- * account has one delegate, so an approval the pool already holds there,
- * for the borrower's other loans in this pool, is kept on top. Approving
- * another program or another pool replaces it.
- */
-async function buildApproveCollection(borrower: TransactionSigner, p: PoolAt, amount: bigint): Promise<Instruction> {
-  const [poolAuthority] = await findPoolAuthorityPda({ pool: p.address });
-  const source = await findTokenAccount(borrower.address, p.pool.quoteMint, TOKEN_PROGRAM_ADDRESS);
-  const current = await getTokenAccount(source);
-  const kept = current?.delegate === poolAuthority ? current.delegatedAmount : 0n;
-  return getApproveInstruction({ source, delegate: poolAuthority, owner: borrower, amount: kept + amount });
-}
-
-/**
- * How much over `owedThroughGrace` a borrow approves: the program checks
- * the approval against the loan as it opens, and a rate or term previewed a
- * moment earlier must not fall short. Collecting never takes more than is
- * owed, so the margin costs the borrower nothing.
+ * How much over what is owed through grace an approval adds: the program
+ * checks a borrow's approval against the loan as it opens, and a rate or
+ * term previewed a moment earlier must not fall short. Collecting never
+ * takes more than is owed, so the margin costs the borrower nothing.
  */
 const APPROVAL_MARGIN_BPS = 100n;
 
+/**
+ * Approves the pool's authority to collect, once each loan matures
+ * (README: `collect_from_borrower`), what the borrower's open loans in the
+ * pool owe through grace plus `newLoan`, with the margin. An account has
+ * one delegate and one allowance, which this replaces, so it covers every
+ * open loan rather than adding to what is left: an allowance a repaid loan
+ * left behind doesn't pile up. Approving another program or pool replaces
+ * it in turn.
+ */
+async function buildApproveCollection(borrower: TransactionSigner, p: PoolAt, newLoan: bigint, now: bigint): Promise<Instruction> {
+  const [poolAuthority] = await findPoolAuthorityPda({ pool: p.address });
+  const source = await findTokenAccount(borrower.address, p.pool.quoteMint, TOKEN_PROGRAM_ADDRESS);
+  const owed = (await getOwedThroughGraceByBorrower(p, borrower.address, now)) + newLoan;
+  return getApproveInstruction({ source, delegate: poolAuthority, owner: borrower, amount: owed + (owed * APPROVAL_MARGIN_BPS) / 10_000n });
+}
+
 export async function buildBorrow(borrower: TransactionSigner, p: PoolAt, r: BorrowRequest): Promise<Instruction[]> {
   const { loan, vault } = await findLoanVault(p.address, r.mint, borrower.address);
-  const approval = r.owedThroughGrace + (r.owedThroughGrace * APPROVAL_MARGIN_BPS) / 10_000n;
   return [
     await buildSettleEpoch(borrower, p),
-    await buildApproveCollection(borrower, p, approval),
+    await buildApproveCollection(borrower, p, r.owedThroughGrace, BigInt(Math.floor(Date.now() / 1000))),
     await getBorrowInstructionAsync({
       borrower,
       pool: p.address,
@@ -240,10 +240,7 @@ export async function getOwedThroughGraceByBorrower(p: PoolAt, borrower: Address
  * loan, not only the one on screen. Only the borrower can.
  */
 export async function buildRenewCollection(borrower: TransactionSigner, p: PoolAt, now: bigint): Promise<Instruction[]> {
-  const [poolAuthority] = await findPoolAuthorityPda({ pool: p.address });
-  const source = await findTokenAccount(borrower.address, p.pool.quoteMint, TOKEN_PROGRAM_ADDRESS);
-  const owed = await getOwedThroughGraceByBorrower(p, borrower.address, now);
-  return [getApproveInstruction({ source, delegate: poolAuthority, owner: borrower, amount: owed + (owed * APPROVAL_MARGIN_BPS) / 10_000n })];
+  return [await buildApproveCollection(borrower, p, 0n, now)];
 }
 
 /**
