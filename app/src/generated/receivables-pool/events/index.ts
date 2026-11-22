@@ -9,6 +9,7 @@
 export * from "./deposited";
 export * from "./epochSettled";
 export * from "./loanClosed";
+export * from "./loanCollected";
 export * from "./loanMarked";
 export * from "./loanOpened";
 export * from "./loanPaid";

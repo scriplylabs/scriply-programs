@@ -21,14 +21,59 @@ A lending pool with no admin. Anyone creates a pool with fixed parameters, inclu
 | `deposit` | Depositors | USDC for shares at the current NAV per share. A pool that requires an attestation checks it here only: shares are a classic SPL token, so anyone can be sent shares and withdraw them |
 | `request_withdrawal` | Depositors | Moves shares to escrow, to be paid at the next epoch's start. If idle USDC can't pay every request, each is paid the same share of what it asked |
 | `claim_withdrawal` | Anyone, for the request's owner | Pays the owner's associated USDC account what the epoch's start set aside for their request, and queues its unpaid shares again for the next epoch's start; a request paid in full closes |
-| `borrow` | Holders of a token | Pledges units with the token's snapshot and proof, and borrows up to the advance the risk engine allows, at the rate it sets, fixed for the loan |
+| `borrow` | Holders of a token | Pledges units with the token's snapshot and proof, and borrows up to the advance the risk engine allows, at the rate it sets, fixed for the loan. The borrower's USDC account must approve the pool's authority for what the loan will owe through maturity and grace |
 | `repay` | Anyone | Pays towards a loan, interest first; once nothing is owed it closes |
+| `collect_from_borrower` | Anyone (keepers) | Once a loan has matured, takes what it owes from the borrower's USDC account, up to what they approved and hold, interest first; once nothing is owed it closes. Refused before maturity, and when the approval is revoked or the account empty |
 | `withdraw_units` | The borrower | Moves a closed loan's remaining units from its vault to the borrower, once the borrower's account for the token is thawed |
 | `sync_loan` | Anyone | Sets USDC paid for a loan's units (a buy-back, the collateral agent's redemption) against the loan and records the units left in its vault; writes the loan off once its vault is empty, it still owes and it is impaired |
 
+### Accounts
+
+Every account the program keeps for one pool. Each loan is its own account with two token accounts of its own; the pool keeps only sums, so nothing else grows with the number of loans.
+
+```mermaid
+flowchart TD
+  pool["<b>Pool</b><br/>[&quot;pool&quot;, creator, seed]<br/>idle, reserved, impaired value,<br/>64 maturity buckets"]
+  authority["<b>Pool authority</b><br/>[&quot;authority&quot;, pool]<br/>no data, signs transfers"]
+  shares["<b>Share mint</b><br/>[&quot;shares&quot;, pool]"]
+  exposure["<b>TokenExposure</b><br/>[&quot;exposure&quot;, pool, mint]<br/>one per token"]
+  loan["<b>Loan</b><br/>[&quot;loan&quot;, pool, mint, borrower]<br/>one per token and borrower"]
+  request["<b>WithdrawalRequest</b><br/>[&quot;withdrawal&quot;, pool, owner]<br/>one per waiting depositor"]
+  generation["<b>WithdrawalGeneration</b><br/>[&quot;generation&quot;, pool, n]<br/>one per epoch that paid withdrawals"]
+  vault[("USDC vault<br/>ATA of the authority")]
+  escrow[("Share escrow<br/>ATA of the authority")]
+  units[("Units vault<br/>ATA of the loan, Token-2022")]
+  proceeds[("Loan proceeds<br/>ATA of the loan, USDC")]
+  borrowerUsdc[("Borrower's USDC account<br/>the borrower's own")]
+  roots["SnapshotRoots<br/>snapshot-roots program"]
+
+  pool --> authority & shares & exposure & loan & request & generation
+  authority -. owns .-> vault & escrow
+  authority -. mint authority .-> shares
+  authority -. delegate, up to the approval .-> borrowerUsdc
+  loan -. owns .-> units & proceeds
+  pool -. reads facts from .-> roots
+
+  classDef external stroke-dasharray: 5 4
+  class borrowerUsdc,roots external
+```
+
+| Account | How many | Taken by |
+|---|---|---|
+| Pool | 1 per pool | Every instruction |
+| Pool authority, USDC vault | 1 each per pool | Every instruction that moves USDC |
+| Share mint, share escrow | 1 each per pool | `create_pool`, `deposit`, `request_withdrawal`, `settle_epoch`, `claim_withdrawal` |
+| `TokenExposure` | 1 per collateral token | `borrow`, `repay`, `collect_from_borrower`, `sync_loan` |
+| `Loan`, its units vault and its proceeds account | 3 per token and borrower, reused once the loan closes | One at a time: `borrow`, `repay`, `collect_from_borrower`, `sync_loan`, `withdraw_units`. In batches: `mark_loans`, `mark_stale` |
+| `WithdrawalRequest` | 1 per depositor waiting | `request_withdrawal`, `claim_withdrawal` |
+| `WithdrawalGeneration` | 1 per epoch that paid withdrawals | Created by `settle_epoch`, read by `claim_withdrawal` |
+
+Only `mark_loans` and `mark_stale` take many loans at once, as remaining accounts a keeper splits across transactions. NAV reads only the pool's buckets.
+
 ### How it decides
 
-- **Repayments go only to the pool's own vaults.** `repay` and `sync_loan` take the pool's USDC vault and the loan's own vault and proceeds account only at their associated token addresses. The quote token must be a classic SPL token, so no transfer fee or delegate leaves the vault short of what the pool counts.
+- **Repayments go only to the pool's own vaults.** `repay`, `sync_loan` and `collect_from_borrower` take the pool's USDC vault and the loan's own vault and proceeds account only at their associated token addresses. The quote token must be a classic SPL token, so no transfer fee or delegate leaves the vault short of what the pool counts.
+- **A matured loan is collected from its borrower, if they let it be.** `borrow` refuses unless the borrower's USDC account approves the pool's authority (an SPL `approve`, sent in the same transaction) for at least what the loan will owe once maturity and grace pass. From maturity anyone may send `collect_from_borrower`, which takes what is owed, up to the approval left and the balance. It is autopay the borrower set up, not enforcement: they can revoke the approval or empty the account, and an account has one delegate and one allowance: the borrower's loans in the pool share it, `borrow` checks only that it covers the new loan, and approving another program or pool replaces it. A loan that can't be collected goes on as before, at the late rate and impaired after grace, until it is repaid or its units are bought back.
 - **Closing a loan never moves its units.** They wait in the loan's vault for `withdraw_units`, so an issuer freezing the borrower's account can't block a repayment. A borrower's next loan against the token waits for them to be withdrawn.
 - **Facts come only from roots.** A signer posts the Merkle root of every token's latest snapshot to `snapshot-roots`; a borrower or keeper hands the pool a token's snapshot and its proof. The root must be the latest one of the pool's signers posted, and no older than the pool allows, so nobody can pick an older, kinder root still kept; the snapshot must name this network and this mint. `docs/snapshot.md` is the layout and the tree.
 - **The risk engine decides the advance and the rate** (`src/risk_engine.rs`, model V1). It refuses while burn debt is overdue, when it was overdue for more days in the year before the snapshot than the pool allows (overdue burn debt clears once the org delivers the units, so the history keeps a late org visible), when more of the token's units are past the pool's late threshold (30, 60 or 90 days) than it allows, and when the term, from the moment the loan opens to its maturity, ends before the invoices are expected to be collected (their weighted days to due plus the days their customers pay beyond terms). The eligible share counts units current or 1–30 days past due, 31–60 days at a weight, and nothing older, less the disputed share; the advance rate falls as customer concentration passes a threshold, up to a ceiling the pool sets (100% is allowed). The rate adds spreads for the share past due, concentration and disputes to a base; on units whose customers have a payment history, spreads for days paid beyond terms and the share not paid on time; and on the rest, a no-history spread; all within the pool's bounds, and is fixed when the loan opens. The cap per token counts every borrower's loans against the token.
@@ -62,6 +107,40 @@ A pool with no admin that pays an anchor's suppliers early on bills a signer att
 | `claim` | Anyone, with the supplier's signature | Pays the supplier the amount less the fee, on an ed25519 check of its signature and the salt that opens the listing's commitment; refunds the fee payer from the listing's deposit. A commitment is claimed once across every pool |
 | `repay` | The anchor | Pays a claimed listing's whole amount into the pool and closes it |
 | `write_off` | Anyone | Takes a claimed listing unrepaid past the pool's write-off days out of NAV; a later repayment counts again |
+
+### Accounts
+
+Every account the program keeps for one pool, and the one it keeps across pools. A listing is its own account and closes when it is repaid or cancelled; the pool keeps only sums.
+
+```mermaid
+flowchart TD
+  pool["<b>Pool</b><br/>[&quot;pool&quot;, creator, mint]<br/>idle, outstanding, listed, written off<br/>authority of its vault and share mint"]
+  shares["<b>Share mint</b><br/>[&quot;shares&quot;, pool]"]
+  anchor["<b>AnchorAccount</b><br/>[&quot;anchor&quot;, pool, wallet]<br/>what one anchor's wallet owes"]
+  listing["<b>Listing</b><br/>[&quot;listing&quot;, pool, anchor wallet, commitment]<br/>one per open bill"]
+  claimed["<b>ClaimRecord</b><br/>[&quot;claimed&quot;, commitment]<br/>one per commitment, across every pool"]
+  vault[("Vault<br/>ATA of the pool")]
+  supplierTokens[("Supplier's token account<br/>created by the claim if missing")]
+  anchorTokens[("Anchor's token account<br/>the anchor's own, signs repay")]
+  roots["SnapshotRoots<br/>snapshot-roots program"]
+
+  pool --> shares & anchor & listing
+  pool -. owns .-> vault
+  listing -. a claim creates .-> claimed
+  vault -. claim pays .-> supplierTokens
+  anchorTokens -. repay pays .-> vault
+  pool -. reads facts from .-> roots
+
+  classDef external stroke-dasharray: 5 4
+  class supplierTokens,anchorTokens,roots external
+```
+
+| Account | How many | Taken by |
+|---|---|---|
+| Pool, share mint, vault | 1 each per pool | Every instruction that moves the token or shares |
+| `AnchorAccount` | 1 per anchor wallet that has listed | `list_bill` (creates it), `cancel_listing`, `repay` |
+| `Listing` | 1 per open bill, closed by `repay` or `cancel_listing` | `list_bill`, `claim`, `cancel_listing`, `repay`, `write_off` |
+| `ClaimRecord` | 1 per claimed commitment, never closed | Created by `claim` |
 
 ## snapshot-roots
 

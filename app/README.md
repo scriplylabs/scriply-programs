@@ -6,9 +6,9 @@ A static web app for the receivables pool: anyone can host it, and it needs no s
 |---|---|
 | Pools | Every pool on the network, with its NAV, idle USDC, terms, rates and signers |
 | Lend | A pool's value and fixed rules; deposit, request a withdrawal, claim it; the pool's loans |
-| Borrow | Pledge a receivables token the wallet holds. It shows the token's facts under the pool's latest root and what the risk engine allows, then creates the loan's vault, asks for it to be thawed, waits until it reads thawed on chain, and borrows |
-| Loan | What a loan owes and the units in its vault; repay (anyone), sync (anyone), withdraw units (the borrower) |
-| Keep | Settle the epoch, mark loans from their tokens' latest roots, mark stale the ones nobody could read |
+| Borrow | Pledge a receivables token the wallet holds. It shows the token's facts under the pool's latest root and what the risk engine allows, then creates the loan's vault, asks for it to be thawed, waits until it reads thawed on chain, and borrows, approving the pool to collect what the loan owes through grace (plus a 1% margin) from the wallet's USDC account at maturity |
+| Loan | Where a loan stands (performing, matured and in grace, written down, impaired, repaid, written off) and what moves it on; what it owes, the units in its vault, and what the pool may collect from the borrower; collect once matured (anyone), repay (anyone), sync (anyone), approve collection again (the borrower), withdraw units (the borrower) |
+| Keep | Settle the epoch, mark loans from their tokens' latest roots, mark stale the ones nobody could read, collect matured loans from their borrowers |
 
 Every transaction is simulated before the wallet is asked to sign it, and a refusal shows the program's own reason. Wallets connect through the Wallet Standard (Phantom, Solflare, Backpack, …).
 

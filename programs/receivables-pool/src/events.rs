@@ -90,3 +90,11 @@ pub struct UnitsWithdrawn {
     pub borrower: Pubkey,
     pub units: u64,
 }
+
+#[event]
+pub struct LoanCollected {
+    pub pool: Pubkey,
+    pub collateral_mint: Pubkey,
+    pub borrower: Pubkey,
+    pub amount: u64,
+}

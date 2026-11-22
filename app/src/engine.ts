@@ -62,19 +62,34 @@ export function toBucketAccrual(b: MaturityBucket): Accrual {
   };
 }
 
-/** `Accrual::of_loan`, from a loan's own terms (`Loan::accrual`). */
-export function toLoanAccrual(loan: Loan): Accrual {
-  const p = loan.principal;
-  const pr = p * BigInt(loan.rateBps);
-  const pl = p * BigInt(loan.lateRateBps);
+/** A loan's terms, as `math::LoanTerms` holds them. */
+export type LoanTerms = { principal: bigint; rateBps: number; lateRateBps: number; start: bigint; maturity: bigint; carried: bigint };
+
+/** `Accrual::of_loan`. */
+export function toAccrual(t: LoanTerms): Accrual {
+  const p = t.principal;
+  const pr = p * BigInt(t.rateBps);
+  const pl = p * BigInt(t.lateRateBps);
   return {
     principal: p,
     principalRate: pr,
-    principalRateStart: pr * time(min(loan.accrualStart, loan.maturityTime)),
+    principalRateStart: pr * time(min(t.start, t.maturity)),
     principalLateRate: pl,
-    principalLateRateStart: pl * time(max(loan.accrualStart, loan.maturityTime)),
-    carriedInterest: loan.carriedInterest,
+    principalLateRateStart: pl * time(max(t.start, t.maturity)),
+    carriedInterest: t.carried,
   };
+}
+
+/** `Loan::accrual`, from a loan's own terms. */
+export function toLoanAccrual(loan: Loan): Accrual {
+  return toAccrual({
+    principal: loan.principal,
+    rateBps: loan.rateBps,
+    lateRateBps: loan.lateRateBps,
+    start: loan.accrualStart,
+    maturity: loan.maturityTime,
+    carried: loan.carriedInterest,
+  });
 }
 
 function isEmpty(a: Accrual): boolean {
@@ -96,6 +111,35 @@ export function owedAt(a: Accrual, now: bigint, maturity: bigint): bigint {
 /** `Loan::owed`: what a loan owes at `now`. */
 export function owedOnLoan(loan: Loan, now: bigint): bigint {
   return owedAt(toLoanAccrual(loan), now, loan.maturityTime);
+}
+
+/** The seconds of grace after a pool's loans mature. */
+export function graceSeconds(pool: Pool): bigint {
+  return BigInt(pool.graceEpochs) * pool.epochSeconds;
+}
+
+/**
+ * `Loan::owed_through_grace` for a loan about to open at `start`: what it
+ * will owe once maturity and grace pass if nothing is paid, the least the
+ * borrower approves the pool to collect (`borrow`).
+ */
+export function owedThroughGraceOnOpening(pool: Pool, principal: bigint, rateBps: number, start: bigint, maturity: bigint): bigint {
+  // The program's late rate saturates at u16.
+  const lateRateBps = Math.min(rateBps + pool.lateSpreadBps, 65_535);
+  const a = toAccrual({ principal, rateBps, lateRateBps, start, maturity, carried: 0n });
+  return owedAt(a, maturity + graceSeconds(pool), maturity);
+}
+
+/**
+ * What an open loan will owe once maturity and grace pass, or owes at `now`
+ * once they have: the least an approval must cover to collect it. Unlike
+ * `Loan::owed_through_grace`, which only `borrow` calls, before maturity,
+ * it never looks back before `now`. Once grace has passed, the late interest
+ * since counts, and a payment since moves the loan's accrual start past the
+ * end of grace.
+ */
+export function owedThroughGrace(pool: Pool, loan: Loan, now: bigint): bigint {
+  return owedOnLoan(loan, max(now, loan.maturityTime + graceSeconds(pool)));
 }
 
 /** `Pool::current_epoch`. */

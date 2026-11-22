@@ -31,6 +31,7 @@ import {
   type TransactionSendingSigner,
   type TransactionSigner,
   type V1TransactionConfig,
+  unwrapOption,
 } from '@solana/kit';
 import { AccountState, findAssociatedTokenPda, getMintDecoder, getTokenDecoder } from '@solana-program/token';
 
@@ -143,8 +144,11 @@ export async function getMint(mint: Address): Promise<MintFacts> {
   return { supply: decoded.supply, decimals: decoded.decimals, programAddress: account.programAddress };
 }
 
-/** A token account's balance and whether it is frozen, or undefined when it doesn't exist. */
-export type TokenAccountFacts = { mint: Address; owner: Address; amount: bigint; isFrozen: boolean };
+/**
+ * A token account's balance, whether it is frozen and whom it approves to
+ * spend from it, or undefined when it doesn't exist.
+ */
+export type TokenAccountFacts = { mint: Address; owner: Address; amount: bigint; isFrozen: boolean; delegate?: Address; delegatedAmount: bigint };
 
 export async function getTokenAccount(tokenAccount: Address): Promise<TokenAccountFacts | undefined> {
   const account = await fetchEncodedAccount(rpc, tokenAccount);
@@ -152,7 +156,14 @@ export async function getTokenAccount(tokenAccount: Address): Promise<TokenAccou
     return undefined;
   }
   const t = getTokenDecoder().decode(account.data.slice(0, 165));
-  return { mint: t.mint, owner: t.owner, amount: t.amount, isFrozen: t.state === AccountState.Frozen };
+  return {
+    mint: t.mint,
+    owner: t.owner,
+    amount: t.amount,
+    isFrozen: t.state === AccountState.Frozen,
+    delegate: unwrapOption(t.delegate) ?? undefined,
+    delegatedAmount: t.delegatedAmount,
+  };
 }
 
 /** The associated token account of `owner` for `mint`. */
@@ -171,7 +182,14 @@ export async function listToken2022Holdings(owner: Address): Promise<Found<Token
       const t = getTokenDecoder().decode(getBase64Encoder().encode(a.account.data[0]).slice(0, 165));
       return {
         address: a.pubkey,
-        data: { mint: t.mint, owner: t.owner, amount: t.amount, isFrozen: t.state === AccountState.Frozen },
+        data: {
+          mint: t.mint,
+          owner: t.owner,
+          amount: t.amount,
+          isFrozen: t.state === AccountState.Frozen,
+          delegate: unwrapOption(t.delegate) ?? undefined,
+          delegatedAmount: t.delegatedAmount,
+        },
       };
     })
     .filter((h) => h.data.amount > 0n);

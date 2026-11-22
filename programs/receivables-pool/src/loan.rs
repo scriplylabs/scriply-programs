@@ -43,6 +43,13 @@ impl Loan {
         to_u64(self.accrual()?.owed_at(now, self.maturity_time)?)
     }
 
+    /// What the loan will owe once its maturity and grace have passed, if
+    /// nothing is paid: what the borrower approves the pool to collect.
+    pub fn owed_through_grace(&self, pool: &Pool) -> Result<u64> {
+        let grace = (pool.grace_epochs as u64 * pool.epoch_seconds) as i64;
+        self.owed(self.maturity_time + grace)
+    }
+
     pub fn is_repaid(&self) -> bool {
         self.principal == 0 && self.carried_interest == 0
     }

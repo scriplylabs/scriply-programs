@@ -15,12 +15,13 @@ use {
     solana_signer::Signer,
 };
 
-/// A holder with `units` of the token and a USDC account, and their loan
-/// vault thawed.
+/// A holder with `units` of the token and a USDC account that approves the
+/// pool to collect from it, and their loan vault thawed.
 fn borrower(env: &mut Env, units: u64) -> Keypair {
     let holder = env.wallet();
     env.mint_units(&holder.pubkey(), units);
     env.fund_usdc(&holder.pubkey(), 0);
+    env.approve_collection(&holder, u64::MAX);
     env.thaw_vault(&holder.pubkey());
     holder
 }
@@ -844,4 +845,143 @@ fn test_a_pool_can_require_depositors_to_be_attested() {
     let ix = env.deposit_ix(&d.pubkey(), 100 * USDC, Some(address));
     env.send(&[ix], &[&d]).unwrap();
     assert!(env.shares_of(&d.pubkey()) > 0);
+}
+
+#[test]
+fn test_borrowing_needs_the_pool_approved_to_collect_through_grace() {
+    let mut env = Env::new();
+    env.depositor(2_000 * USDC);
+    let org = borrower(&mut env, 1_000 * UNIT);
+
+    // 500 at 12% to maturity (4 epochs), then 15% for 2 epochs of grace.
+    let through_grace =
+        500 * USDC + (500 * USDC * 1_200 * 28 + 500 * USDC * 1_500 * 14) / 365 / 10_000;
+    for approved in [0, through_grace - 1_000] {
+        env.approve_collection(&org, approved);
+        let proven = env.post_token();
+        let ixs = [
+            env.settle_ix(&org.pubkey()),
+            env.borrow_ix(&org.pubkey(), 1_000 * UNIT, 500 * USDC, 4, proven),
+        ];
+        env.send_expecting_error(&ixs, &[&org], "CollectionNotApproved");
+    }
+    env.approve_collection(&org, through_grace);
+    borrow(&mut env, &org, 1_000 * UNIT, 500 * USDC, 4);
+    assert!(env.loan_state(&org.pubkey()).is_open);
+}
+
+#[test]
+fn test_a_matured_loan_is_collected_from_the_borrower() {
+    let mut env = Env::new();
+    env.depositor(2_000 * USDC);
+    let org = borrower(&mut env, 1_000 * UNIT);
+    borrow(&mut env, &org, 1_000 * UNIT, 500 * USDC, 4);
+    let keeper = env.wallet();
+
+    // Before maturity nobody can collect.
+    env.set_time(T0 + 3 * EPOCH);
+    env.settle_and_mark(&[&org.pubkey()]);
+    let ix = env.collect_from_borrower_ix(&org.pubkey());
+    env.send_expecting_error(&[ix], &[&keeper], "NotMatured");
+
+    // At maturity a keeper takes principal and 4 epochs of interest.
+    env.set_time(T0 + 4 * EPOCH);
+    env.fund_usdc(&org.pubkey(), 10 * USDC);
+    let ixs = [
+        env.settle_ix(&keeper.pubkey()),
+        env.collect_from_borrower_ix(&org.pubkey()),
+    ];
+    env.send(&ixs, &[&keeper]).unwrap();
+    // 500 at 12% for 28 days is 4.602739 of interest.
+    assert_eq!(env.usdc_balance(&org.pubkey()), 510 * USDC - 504_602_739);
+    assert!(!env.loan_state(&org.pubkey()).is_open);
+    assert_eq!(env.exposure_state().principal, 0);
+
+    // The units wait in the vault for the borrower.
+    let ix = env.withdraw_units_ix(&org.pubkey());
+    env.send(&[ix], &[&org]).unwrap();
+    assert_eq!(env.units_of(&org.pubkey()), 1_000 * UNIT);
+}
+
+#[test]
+fn test_collecting_a_loan_its_proceeds_repay_closes_it_and_takes_nothing() {
+    let mut env = Env::new();
+    env.depositor(2_000 * USDC);
+    let org = borrower(&mut env, 1_000 * UNIT);
+    borrow(&mut env, &org, 1_000 * UNIT, 500 * USDC, 4);
+    let keeper = env.wallet();
+    env.set_time(T0 + 4 * EPOCH);
+    env.settle();
+
+    // A buy-back paid more than the loan owes, and nobody synced it yet.
+    let creator = env.creator.insecure_clone();
+    let funding = env.fund_usdc(&creator.pubkey(), 600 * USDC);
+    let proceeds = ata(&env.loan(&org.pubkey()), &env.usdc, &spl_token::ID);
+    let ix = spl_token::instruction::transfer(
+        &spl_token::ID,
+        &funding,
+        &proceeds,
+        &creator.pubkey(),
+        &[],
+        600 * USDC,
+    )
+    .unwrap();
+    env.send(&[ix], &[&creator]).unwrap();
+
+    // Collecting sets the proceeds against it and closes it; the borrower
+    // is sent the rest and nothing is taken from them.
+    let ix = env.collect_from_borrower_ix(&org.pubkey());
+    env.send(&[ix], &[&keeper]).unwrap();
+    assert!(!env.loan_state(&org.pubkey()).is_open);
+    // 500 at 12% for 28 days is 4.602739 of interest.
+    assert_eq!(
+        env.usdc_balance(&org.pubkey()),
+        500 * USDC + 600 * USDC - 504_602_739
+    );
+}
+
+#[test]
+fn test_collecting_takes_only_what_the_borrower_approved_and_holds() {
+    let mut env = Env::new();
+    env.depositor(2_000 * USDC);
+    let org = borrower(&mut env, 1_000 * UNIT);
+    borrow(&mut env, &org, 1_000 * UNIT, 500 * USDC, 4);
+    let keeper = env.wallet();
+    env.set_time(T0 + 4 * EPOCH);
+    env.settle();
+
+    // The borrower lowered the approval: the pool takes 100, interest first.
+    env.approve_collection(&org, 100 * USDC);
+    let ix = env.collect_from_borrower_ix(&org.pubkey());
+    env.send(&[ix], &[&keeper]).unwrap();
+    assert_eq!(env.usdc_balance(&org.pubkey()), 400 * USDC);
+    let loan = env.loan_state(&org.pubkey());
+    assert!(loan.is_open);
+    assert_eq!(loan.principal, 500 * USDC - (100 * USDC - 4_602_739));
+
+    // Revoked, there is nothing to take, and the loan stays open.
+    env.approve_collection(&org, 0);
+    let ix = env.collect_from_borrower_ix(&org.pubkey());
+    env.send_expecting_error(&[ix], &[&keeper], "NothingToCollect");
+
+    // Approved but empty, likewise; what it holds is the limit.
+    env.approve_collection(&org, u64::MAX);
+    let spent = env.wallet();
+    let to = env.fund_usdc(&spent.pubkey(), 0);
+    let ix = spl_token::instruction::transfer(
+        &spl_token::ID,
+        &ata(&org.pubkey(), &env.usdc, &spl_token::ID),
+        &to,
+        &org.pubkey(),
+        &[],
+        350 * USDC,
+    )
+    .unwrap();
+    env.send(&[ix], &[&org]).unwrap();
+    let ix = env.collect_from_borrower_ix(&org.pubkey());
+    env.send(&[ix], &[&keeper]).unwrap();
+    assert_eq!(env.usdc_balance(&org.pubkey()), 0);
+    assert!(env.loan_state(&org.pubkey()).is_open);
+    let ix = env.collect_from_borrower_ix(&org.pubkey());
+    env.send_expecting_error(&[ix], &[&keeper], "NothingToCollect");
 }

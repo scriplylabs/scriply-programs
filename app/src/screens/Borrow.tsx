@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { buildBorrow, buildCreateVault, findLoanVault, type PoolAt } from '../actions';
 import { requestLoanVaultThaw } from '../api';
 import { getMint, getTokenAccount, listPoolMaturities, listToken2022Holdings, proveToken, rpc, sendInstructions } from '../chain';
-import { assessBorrow, borrowRefusals, epochStart, faceValue, isSettled, nav } from '../engine';
+import { assessBorrow, borrowRefusals, epochStart, faceValue, isSettled, nav, owedThroughGraceOnOpening } from '../engine';
 import { fetchMaybeLoan, fetchMaybeTokenExposure, findExposurePda, type Pool } from '../generated/receivables-pool';
 import { formatAmount, formatBps, formatDuration, formatTime, parseAmount, shortenAddress } from '../format';
 import { useLoad, useNow } from '../hooks';
@@ -146,6 +146,13 @@ function Facts({ pool, mint, signer, now }: { pool: PoolAt; mint: Address; signe
               <dd>{formatAmount(quote.terms.maxPrincipal, p.quoteDecimals)} USDC</dd>
               <dt>Rate, fixed for the loan</dt>
               <dd>{formatBps(quote.terms.rateBps)} a year, {formatBps(quote.terms.rateBps + p.lateSpreadBps)} past maturity</dd>
+              <dt>Collected at maturity</dt>
+              <dd>
+                {principal
+                  ? `Up to ${formatAmount(owedThroughGraceOnOpening(p, principal, quote.terms.rateBps, now, epochStart(p, p.settledEpoch + BigInt(maturity))), p.quoteDecimals)} USDC`
+                  : 'What the loan owes'}{' '}
+                from your USDC account, which the borrow approves the pool to take. Repay before maturity and nothing is taken.
+              </dd>
               <dt>Pool can lend</dt>
               <dd>{formatAmount(p.idle, p.quoteDecimals)} USDC idle, {formatAmount(capLeft > 0n ? capLeft : 0n, p.quoteDecimals)} USDC left under the cap for this token</dd>
             </dl>
@@ -191,7 +198,12 @@ function Facts({ pool, mint, signer, now }: { pool: PoolAt; mint: Address; signe
                 `The signer posted new facts since this page loaded: the rate is now ${formatBps(current.terms.rateBps)} and the most the units borrow is ${formatAmount(current.terms.maxPrincipal, p.quoteDecimals)} USDC. Check the new terms and borrow again.`,
               );
             }
-            return await sendInstructions(signer, await buildBorrow(signer, pool, { mint, units: units!, principal: principal!, maturityEpochs: maturity, proof: fresh }));
+            const maturityTime = epochStart(p, p.settledEpoch + BigInt(maturity));
+            const owedThroughGrace = owedThroughGraceOnOpening(p, principal!, current.terms.rateBps, sentAt, maturityTime);
+            return await sendInstructions(
+              signer,
+              await buildBorrow(signer, pool, { mint, units: units!, principal: principal!, maturityEpochs: maturity, proof: fresh, owedThroughGrace }),
+            );
           } finally {
             setProgress(undefined);
           }

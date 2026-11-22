@@ -55,6 +55,7 @@ import {
 import {
   getBorrowInstructionAsync,
   getClaimWithdrawalInstructionAsync,
+  getCollectFromBorrowerInstructionAsync,
   getCreatePoolInstructionAsync,
   getDepositInstructionAsync,
   getMarkLoansInstruction,
@@ -66,6 +67,7 @@ import {
   getWithdrawUnitsInstructionAsync,
   parseBorrowInstruction,
   parseClaimWithdrawalInstruction,
+  parseCollectFromBorrowerInstruction,
   parseCreatePoolInstruction,
   parseDepositInstruction,
   parseMarkLoansInstruction,
@@ -77,12 +79,14 @@ import {
   parseWithdrawUnitsInstruction,
   type BorrowAsyncInput,
   type ClaimWithdrawalAsyncInput,
+  type CollectFromBorrowerAsyncInput,
   type CreatePoolAsyncInput,
   type DepositAsyncInput,
   type MarkLoansInput,
   type MarkStaleInput,
   type ParsedBorrowInstruction,
   type ParsedClaimWithdrawalInstruction,
+  type ParsedCollectFromBorrowerInstruction,
   type ParsedCreatePoolInstruction,
   type ParsedDepositInstruction,
   type ParsedMarkLoansInstruction,
@@ -187,6 +191,7 @@ export enum ReceivablesPoolEvent {
   Deposited,
   EpochSettled,
   LoanClosed,
+  LoanCollected,
   LoanMarked,
   LoanOpened,
   LoanPaid,
@@ -233,6 +238,17 @@ export function identifyReceivablesPoolEvent(
     )
   ) {
     return ReceivablesPoolEvent.LoanClosed;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([88, 235, 116, 243, 234, 228, 186, 213]),
+      ),
+      0,
+    )
+  ) {
+    return ReceivablesPoolEvent.LoanCollected;
   }
   if (
     containsBytes(
@@ -330,6 +346,7 @@ export function identifyReceivablesPoolEvent(
 export enum ReceivablesPoolInstruction {
   Borrow,
   ClaimWithdrawal,
+  CollectFromBorrower,
   CreatePool,
   Deposit,
   MarkLoans,
@@ -366,6 +383,17 @@ export function identifyReceivablesPoolInstruction(
     )
   ) {
     return ReceivablesPoolInstruction.ClaimWithdrawal;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([96, 180, 92, 148, 252, 105, 208, 129]),
+      ),
+      0,
+    )
+  ) {
+    return ReceivablesPoolInstruction.CollectFromBorrower;
   }
   if (
     containsBytes(
@@ -482,6 +510,9 @@ export type ParsedReceivablesPoolInstruction<
       instructionType: ReceivablesPoolInstruction.ClaimWithdrawal;
     } & ParsedClaimWithdrawalInstruction<TProgram>)
   | ({
+      instructionType: ReceivablesPoolInstruction.CollectFromBorrower;
+    } & ParsedCollectFromBorrowerInstruction<TProgram>)
+  | ({
       instructionType: ReceivablesPoolInstruction.CreatePool;
     } & ParsedCreatePoolInstruction<TProgram>)
   | ({
@@ -526,6 +557,13 @@ export function parseReceivablesPoolInstruction<TProgram extends string>(
       return {
         instructionType: ReceivablesPoolInstruction.ClaimWithdrawal,
         ...parseClaimWithdrawalInstruction(instruction),
+      };
+    }
+    case ReceivablesPoolInstruction.CollectFromBorrower: {
+      assertIsInstructionWithAccounts(instruction);
+      return {
+        instructionType: ReceivablesPoolInstruction.CollectFromBorrower,
+        ...parseCollectFromBorrowerInstruction(instruction),
       };
     }
     case ReceivablesPoolInstruction.CreatePool: {
@@ -632,6 +670,11 @@ export type ReceivablesPoolPluginInstructions = {
     config?: { programAddress?: Address | HasAddress },
   ) => ReturnType<typeof getClaimWithdrawalInstructionAsync> &
     SelfPlanAndSendFunctions;
+  collectFromBorrower: (
+    input: CollectFromBorrowerAsyncInput,
+    config?: { programAddress?: Address | HasAddress },
+  ) => ReturnType<typeof getCollectFromBorrowerInstructionAsync> &
+    SelfPlanAndSendFunctions;
   createPool: (
     input: CreatePoolAsyncInput,
     config?: { programAddress?: Address | HasAddress },
@@ -725,6 +768,14 @@ export function receivablesPoolProgram(
             addSelfPlanAndSendFunctions(
               client,
               getClaimWithdrawalInstructionAsync(input, {
+                programAddress:
+                  instructionConfig?.programAddress ?? config.programAddress,
+              }),
+            ),
+          collectFromBorrower: (input, instructionConfig) =>
+            addSelfPlanAndSendFunctions(
+              client,
+              getCollectFromBorrowerInstructionAsync(input, {
                 programAddress:
                   instructionConfig?.programAddress ?? config.programAddress,
               }),

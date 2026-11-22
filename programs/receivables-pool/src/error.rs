@@ -106,4 +106,12 @@ pub enum PoolError {
 
     #[msg("Arithmetic overflow")]
     MathOverflow,
+
+    // Collecting from the borrower
+    #[msg("The borrower's USDC account must approve the pool's authority for what the loan owes through grace")]
+    CollectionNotApproved,
+    #[msg("The loan hasn't reached maturity")]
+    NotMatured,
+    #[msg("The borrower's USDC account has nothing the pool may collect")]
+    NothingToCollect,
 }

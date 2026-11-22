@@ -802,6 +802,42 @@ impl Env {
         )
     }
 
+    /// `owner` approves the pool's authority to take up to `amount` from
+    /// their USDC account, as a borrower does in the transaction that
+    /// borrows; 0 revokes.
+    pub fn approve_collection(&mut self, owner: &Keypair, amount: u64) {
+        let account = ata(&owner.pubkey(), &self.usdc, &spl_token::ID);
+        let ix = match amount {
+            0 => spl_token::instruction::revoke(&spl_token::ID, &account, &owner.pubkey(), &[]),
+            _ => spl_token::instruction::approve(
+                &spl_token::ID,
+                &account,
+                &self.authority,
+                &owner.pubkey(),
+                &[],
+                amount,
+            ),
+        }
+        .unwrap();
+        self.send(&[ix], &[owner]).unwrap();
+    }
+
+    pub fn collect_from_borrower_ix(&self, borrower: &Pubkey) -> Instruction {
+        Instruction::new_with_bytes(
+            receivables_pool::id(),
+            &receivables_pool::instruction::CollectFromBorrower {}.data(),
+            receivables_pool::accounts::CollectFromBorrower {
+                pool: self.pool,
+                loan: self.loan(borrower),
+                exposure: self.exposure(),
+                loan_tokens: self.loan_tokens(borrower),
+                quote_mint: self.usdc,
+                collateral_mint: self.token,
+            }
+            .to_account_metas(None),
+        )
+    }
+
     pub fn repay_ix(&self, payer: &Pubkey, borrower: &Pubkey, amount: u64) -> Instruction {
         Instruction::new_with_bytes(
             receivables_pool::id(),

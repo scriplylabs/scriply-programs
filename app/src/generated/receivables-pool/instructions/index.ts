@@ -8,6 +8,7 @@
 
 export * from "./borrow";
 export * from "./claimWithdrawal";
+export * from "./collectFromBorrower";
 export * from "./createPool";
 export * from "./deposit";
 export * from "./markLoans";
